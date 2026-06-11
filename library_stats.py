@@ -4,8 +4,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import os
+import requests
+import io
 
 st.set_page_config(page_title="Prempeh II Library", layout="wide")
+
+# ========== YOUR GOOGLE SHEET ID ==========
+SHEET_ID = "1NG8yGF392pDoKE7JRunwbfRU1PAAcnoBH6rnSmXs-wo"
 
 # ========== DEFINE ALL CONSTANTS ==========
 floors = ["Ground floor", "First floor", "Second floor", "Third floor", "Fourth floor", "Research Commons"]
@@ -17,72 +22,67 @@ LOCAL_DATA_FILE = "prempeh_library_all_data.csv"
 
 # ========== TIME FORMAT CONVERTER ==========
 def convert_time_format(time_str):
-    """Convert 24-hour format (11:00, 14:00, etc.) to 12-hour format (11am, 2pm, etc.)"""
     if pd.isna(time_str):
         return time_str
     time_str = str(time_str)
     time_map = {
-        "11:00": "11am",
-        "14:00": "2pm",
-        "16:00": "4pm",
-        "20:00": "8pm",
-        "11:0": "11am",
-        "14:0": "2pm",
-        "16:0": "4pm",
-        "20:0": "8pm",
-        "11": "11am",
-        "14": "2pm",
-        "16": "4pm",
-        "20": "8pm"
+        "11:00": "11am", "14:00": "2pm", "16:00": "4pm", "20:00": "8pm",
+        "11:0": "11am", "14:0": "2pm", "16:0": "4pm", "20:0": "8pm",
+        "11": "11am", "14": "2pm", "16": "4pm", "20": "8pm"
     }
     return time_map.get(time_str, time_str)
 
 # ========== DATE FORMAT CONVERTER ==========
 def convert_date_format(date_str):
-    """Convert various date formats to YYYY-MM-DD"""
     if pd.isna(date_str):
         return date_str
     date_str = str(date_str)
-    
-    # If already in YYYY-MM-DD format
     if date_str.count('-') == 2 and len(date_str.split('-')[0]) == 4:
         return date_str
-    
-    # Try dd/mm/yyyy format
     try:
         if '/' in date_str:
             parts = date_str.split('/')
-            if len(parts[0]) <= 2:  # dd/mm/yyyy
+            if len(parts[0]) <= 2:
                 return datetime.strptime(date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
     except:
         pass
-    
-    # Try other formats
     try:
         return pd.to_datetime(date_str).strftime("%Y-%m-%d")
     except:
         return date_str
 
-# ========== CLEAN AND CONVERT DATA ==========
+# ========== CLEAN DATA ==========
 def clean_data(df):
-    """Clean and convert date and time formats"""
     if len(df) == 0:
         return df
-    
     df = df.copy()
-    
-    # Convert time format
     if 'time_slot' in df.columns:
         df['time_slot'] = df['time_slot'].apply(convert_time_format)
-    
-    # Convert date format
     if 'date' in df.columns:
         df['date'] = df['date'].apply(convert_date_format)
-    
     return df
 
-# ========== LOAD DATA ==========
+# ========== LOAD FROM GOOGLE SHEET ==========
+def load_from_google_sheet():
+    try:
+        csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+        response = requests.get(csv_url)
+        if response.status_code == 200:
+            df = pd.read_csv(io.StringIO(response.text))
+            if len(df) > 0 and 'date' in df.columns:
+                df = clean_data(df)
+                return df
+    except Exception as e:
+        pass
+    return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
+
+# ========== LOAD ALL DATA ==========
 def load_all_data():
+    # Try Google Sheet first
+    df = load_from_google_sheet()
+    if len(df) > 0:
+        return df
+    # Fallback to local file
     if os.path.exists(LOCAL_DATA_FILE):
         df = pd.read_csv(LOCAL_DATA_FILE)
         df = clean_data(df)
@@ -90,7 +90,6 @@ def load_all_data():
     return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
 
 def save_all_data(df):
-    # Clean before saving
     df = clean_data(df)
     df.to_csv(LOCAL_DATA_FILE, index=False)
     return True
@@ -107,7 +106,6 @@ if len(df_all) > 0:
     total_days = df_all['date'].nunique()
     st.sidebar.success(f"✅ {total_days} days • {total_visitors:,} visitors")
     
-    # Show available months
     if 'date' in df_all.columns:
         df_all['date_obj'] = pd.to_datetime(df_all['date'])
         df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
@@ -312,25 +310,21 @@ elif page == "📊 Executive Dashboard":
         st.warning("No data yet.")
         st.stop()
     
-    # Prepare data
     df_all['date_obj'] = pd.to_datetime(df_all['date'])
     df_all['month'] = df_all['date_obj'].dt.strftime('%B')
     df_all['year'] = df_all['date_obj'].dt.year
     df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
     df_all['weekday'] = df_all['date_obj'].dt.day_name()
     
-    # Month selector
     available_months = sorted(df_all['month_year'].unique(), reverse=True)
     selected_month = st.selectbox("📅 Select Month", available_months)
     
-    # Filter data
     df = df_all[df_all['month_year'] == selected_month]
     
     if len(df) == 0:
         st.warning(f"No data for {selected_month}")
         st.stop()
     
-    # ========== TOP KPI ROW ==========
     st.subheader(f"📊 {selected_month} - Key Performance Indicators")
     
     total_visitors = df['count'].sum()
@@ -353,27 +347,19 @@ elif page == "📊 Executive Dashboard":
     
     st.divider()
     
-    # ========== DAILY TREND CHART ==========
     st.subheader(f"📈 Daily Traffic Trend - {selected_month}")
     daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
-    fig1 = px.line(daily_trend, x='date_obj', y='count', markers=True, 
-                   title=f"Daily Visitors in {selected_month}",
-                   labels={'date_obj': 'Date', 'count': 'Visitors'})
-    fig1.add_hline(y=daily_trend['count'].mean(), line_dash="dash", 
-                   annotation_text=f"Monthly Avg: {daily_trend['count'].mean():.0f}")
+    fig1 = px.line(daily_trend, x='date_obj', y='count', markers=True)
+    fig1.add_hline(y=daily_trend['count'].mean(), line_dash="dash", annotation_text=f"Monthly Avg: {daily_trend['count'].mean():.0f}")
     st.plotly_chart(fig1, use_container_width=True)
     
-    # ========== TWO COLUMN CHARTS ==========
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("🏢 Total by Floor")
         floor_total = df.groupby('floor')['count'].sum().sort_values(ascending=True)
-        fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h',
-                     title=f"Floor Usage in {selected_month}",
-                     labels={'x': 'Total Visitors', 'y': ''})
+        fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h')
         st.plotly_chart(fig2, use_container_width=True)
-        
         floor_pct = (floor_total / floor_total.sum() * 100).round(1)
         st.caption("**Floor Distribution:**")
         for floor, pct in floor_pct.items():
@@ -382,25 +368,17 @@ elif page == "📊 Executive Dashboard":
     with col2:
         st.subheader("⏰ Total by Time Slot")
         time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots)
-        fig3 = px.bar(x=time_total.index, y=time_total.values,
-                     title=f"Time Slot Usage in {selected_month}",
-                     labels={'x': 'Time', 'y': 'Total Visitors'})
+        fig3 = px.bar(x=time_total.index, y=time_total.values)
         st.plotly_chart(fig3, use_container_width=True)
-        
         time_pct = (time_total / time_total.sum() * 100).round(1)
         st.caption("**Time Distribution:**")
         for time, pct in time_pct.items():
             st.write(f"   - {time}: {pct}%")
     
-    st.divider()
-    
-    # ========== HEATMAPS ==========
     st.subheader("🔥 Advanced Analytics")
-    
     heat1, heat2 = st.columns(2)
     
     with heat1:
-        st.caption("Floor × Time Slot Heatmap")
         pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack()
         pivot = pivot.reindex(columns=time_slots)
         fig4 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd")
@@ -408,7 +386,6 @@ elif page == "📊 Executive Dashboard":
         st.plotly_chart(fig4, use_container_width=True)
     
     with heat2:
-        st.caption("Day × Time Slot Heatmap")
         day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack()
         day_pivot = day_pivot.reindex(columns=time_slots)
         day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
@@ -416,15 +393,11 @@ elif page == "📊 Executive Dashboard":
         fig5.update_layout(height=400)
         st.plotly_chart(fig5, use_container_width=True)
     
-    # ========== WEEKLY PATTERN ==========
     st.subheader("📅 Weekly Pattern Analysis")
     weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order)
-    fig6 = px.bar(x=weekly_pattern.index, y=weekly_pattern.values,
-                  title=f"Weekly Traffic Pattern - {selected_month}",
-                  labels={'x': 'Day', 'y': 'Total Visitors'})
+    fig6 = px.bar(x=weekly_pattern.index, y=weekly_pattern.values)
     st.plotly_chart(fig6, use_container_width=True)
     
-    # ========== DAILY TOTALS TABLE ==========
     st.subheader("📋 Daily Totals")
     daily_summary = df.groupby(['date_obj', 'weekday'])['count'].sum().reset_index()
     daily_summary.columns = ['Date', 'Day', 'Total Visitors']
@@ -449,7 +422,6 @@ elif page == "📅 Daily View":
     
     if len(date_data) > 0:
         st.write(f"### Detailed Breakdown for {selected_date.strftime('%A, %B %d, %Y')}")
-        
         daily_total = date_data['count'].sum()
         st.metric("Total Visitors This Day", f"{daily_total:,}")
         
@@ -460,8 +432,7 @@ elif page == "📅 Daily View":
         
         st.write("#### Floor Totals")
         floor_totals = date_data.groupby('floor')['count'].sum().sort_values(ascending=False)
-        fig = px.bar(x=floor_totals.index, y=floor_totals.values, 
-                     title=f"Visitors by Floor on {selected_date.strftime('%B %d')}")
+        fig = px.bar(x=floor_totals.index, y=floor_totals.values)
         st.plotly_chart(fig, use_container_width=True)
 
 # ========== EXPORT PAGE ==========
