@@ -3,69 +3,67 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import requests
-import io
+import os
 
 st.set_page_config(page_title="Prempeh II Library", layout="wide")
 
-# ========== YOUR GOOGLE SHEET ID ==========
-SHEET_ID = "1zrpAi-5tPNIZH8OIViC8wSNmYdDvKtc2L3-BiAn3C4Q"
-
-# Define data structure
+# ========== DEFINE ALL CONSTANTS ==========
 floors = ["Ground floor", "First floor", "Second floor", "Third floor", "Fourth floor", "Research Commons"]
 time_slots = ["11am", "2pm", "4pm", "8pm"]
+days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
-# ========== FUNCTION TO LOAD DATA FROM GOOGLE SHEETS ==========
-def load_data():
-    try:
-        csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
-        response = requests.get(csv_url)
-        
-        if response.status_code == 200:
-            df = pd.read_csv(io.StringIO(response.text))
-            
-            if len(df) > 0 and 'date' in df.columns:
-                df["date"] = pd.to_datetime(df["date"])
-                return df
-            else:
-                return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
-        else:
-            return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
-    except Exception as e:
-        st.warning(f"Loading data: {e}")
-        return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
+# Local CSV file
+LOCAL_DATA_FILE = "prempeh_library_all_data.csv"
 
-# ========== FUNCTION TO SAVE DATA LOCALLY ==========
-def save_data_locally(df):
-    df.to_csv("prempeh_library_data.csv", index=False)
-    st.info("💡 **Next step:** Download this CSV and upload to Google Sheets to update the cloud dashboard.")
-    
-    csv_data = df.to_csv(index=False)
-    st.download_button(
-        label="📥 Download CSV to upload to Google Sheets",
-        data=csv_data,
-        file_name="prempeh_library_data.csv",
-        mime="text/csv"
-    )
+# ========== LOAD DATA ==========
+def load_all_data():
+    if os.path.exists(LOCAL_DATA_FILE):
+        df = pd.read_csv(LOCAL_DATA_FILE)
+        return df
+    return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
 
-# Load existing data
-df_all = load_data()
+def save_all_data(df):
+    df.to_csv(LOCAL_DATA_FILE, index=False)
+    return True
 
-# Sidebar
+df_all = load_all_data()
+
+# ========== SIDEBAR ==========
 st.sidebar.title("🏛️ Prempeh II Library")
-st.sidebar.caption("Senior Data Analytics Dashboard")
+st.sidebar.caption("Complete Analytics System")
 
-if len(df_all) > 0 and 'date' in df_all.columns:
-    st.sidebar.success(f"✅ Data loaded: {df_all['date'].nunique()} days")
+if len(df_all) > 0:
+    total_visitors = df_all['count'].sum()
+    total_days = df_all['date'].nunique()
+    st.sidebar.success(f"✅ {total_days} days • {total_visitors:,} visitors")
+    
+    # Show available months
+    if 'date' in df_all.columns:
+        df_all['date_obj'] = pd.to_datetime(df_all['date'])
+        df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
+        available_months = sorted(df_all['month_year'].unique(), reverse=True)
+        with st.sidebar.expander("📅 Data by Month"):
+            for m in available_months:
+                month_total = df_all[df_all['month_year'] == m]['count'].sum()
+                st.sidebar.write(f"   - {m}: {month_total:,} visitors")
 else:
     st.sidebar.info("📝 No data yet. Add your first day!")
 
-page = st.sidebar.radio("Navigate:", ["📝 Enter Data", "✏️ Edit Data", "📊 Executive Dashboard", "📄 Generate Report"])
+if st.sidebar.button("☁️ Download CSV for Cloud"):
+    if len(df_all) > 0:
+        csv_data = df_all.to_csv(index=False)
+        st.sidebar.download_button(
+            label="📥 Download CSV",
+            data=csv_data,
+            file_name="prempeh_library_all_data.csv",
+            mime="text/csv"
+        )
 
-# ========== PAGE 1: DATA ENTRY ==========
+page = st.sidebar.radio("Navigate:", ["📝 Enter Data", "✏️ Edit Data", "📊 Executive Dashboard", "📅 Daily View", "📄 Export Report"])
+
+# ========== DATA ENTRY PAGE ==========
 if page == "📝 Enter Data":
-    st.title("🏛️ Prempeh II Library User Statistics")
-    st.caption("Enter daily user counts by floor and time")
+    st.title("🏛️ Prempeh II Library - Enter Data")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -74,8 +72,13 @@ if page == "📝 Enter Data":
         selected_day = actual_date.strftime("%A")
         st.write(f"**Day:** {selected_day}")
     
+    date_str = actual_date.strftime("%Y-%m-%d")
+    existing_for_date = df_all[df_all["date"] == date_str] if len(df_all) > 0 else pd.DataFrame()
+    
+    if len(existing_for_date) > 0:
+        st.warning(f"⚠️ Data already exists for {actual_date}. Use 'Edit Data' to modify.")
+    
     st.write(f"### 📅 {selected_day}, {actual_date.strftime('%B %d, %Y')}")
-    st.info("✨ Only type numbers where people are present. Leave empty for zero.")
     
     entered_data = {}
     
@@ -93,7 +96,7 @@ if page == "📝 Enter Data":
         
         row_total = 0
         for i, floor in enumerate(floors):
-            key = f"{actual_date}_{time_slot}_{floor}"
+            key = f"{date_str}_{time_slot}_{floor}"
             count = row_cols[i+1].number_input(
                 "", min_value=0, step=1, key=key, 
                 label_visibility="collapsed",
@@ -108,7 +111,7 @@ if page == "📝 Enter Data":
     
     st.markdown("---")
     total_cols = st.columns([1.2] + [1]*len(floors) + [1.2])
-    total_cols[0].write("**Total**")
+    total_cols[0].write("**Total for this day**")
     grand_total = 0
     for i, floor in enumerate(floors):
         total_cols[i+1].write(f"**{floor_totals[floor]}**")
@@ -121,7 +124,7 @@ if page == "📝 Enter Data":
             for floor in floors:
                 count = entered_data.get((time_slot, floor), 0)
                 new_rows.append({
-                    "date": actual_date.strftime("%Y-%m-%d"),
+                    "date": date_str,
                     "day": selected_day,
                     "floor": floor,
                     "time_slot": time_slot,
@@ -130,224 +133,393 @@ if page == "📝 Enter Data":
         
         new_df = pd.DataFrame(new_rows)
         
-        if len(df_all) > 0 and 'date' in df_all.columns:
-            df_all = df_all[df_all["date"] != pd.to_datetime(actual_date)]
+        if len(df_all) > 0:
+            df_all = df_all[df_all["date"] != date_str]
             df_all = pd.concat([df_all, new_df], ignore_index=True)
         else:
             df_all = new_df
         
-        save_data_locally(df_all)
-        st.success(f"✅ Data prepared for {selected_day}! Download the CSV above.")
+        save_all_data(df_all)
+        st.success(f"✅ Data for {selected_day} SAVED!")
         st.balloons()
-    
-    if len(df_all) > 0 and 'date' in df_all.columns:
-        day_data = df_all[df_all["date"] == pd.to_datetime(actual_date)]
-        if len(day_data) > 0:
-            st.write("### 📋 Currently saved for this date")
-            pivot = day_data.pivot_table(index="time_slot", columns="floor", values="count", fill_value=0)
-            pivot["Total"] = pivot.sum(axis=1)
-            st.dataframe(pivot)
+        st.rerun()
 
-# ========== PAGE 2: EDIT DATA ==========
+# ========== EDIT DATA PAGE ==========
 elif page == "✏️ Edit Data":
     st.title("✏️ Edit Existing Data")
     
-    if len(df_all) == 0 or (len(df_all) > 0 and 'date' not in df_all.columns):
-        st.warning("No data to edit. Add data first.")
+    if len(df_all) == 0:
+        st.warning("No data to edit.")
         st.stop()
     
-    all_dates = sorted(df_all["date"].unique())
-    date_options = [d.date() for d in all_dates]
+    all_dates = sorted(df_all["date"].unique(), reverse=True)
+    selected_date_str = st.selectbox("Select date to edit", all_dates)
     
-    st.write("### Select date to edit")
-    selected_date_obj = st.date_input("Choose a date", date_options[0] if date_options else datetime.now())
-    
-    selected_date = pd.to_datetime(selected_date_obj)
-    date_data = df_all[df_all["date"] == selected_date]
+    date_data = df_all[df_all["date"] == selected_date_str]
     
     if len(date_data) > 0:
+        selected_date = datetime.strptime(selected_date_str, "%Y-%m-%d")
         st.write(f"### Editing {selected_date.strftime('%A, %B %d, %Y')}")
         
+        day_name = date_data['day'].iloc[0]
         edited_data = {}
+        
+        header_cols = st.columns([1.2] + [1]*len(floors) + [1.2])
+        header_cols[0].write("**Time → / Floor ↓**")
+        for i, floor in enumerate(floors):
+            header_cols[i+1].write(f"**{floor[:12]}**")
+        header_cols[-1].write("**Total**")
+        
+        floor_totals = {floor: 0 for floor in floors}
+        
         for time_slot in time_slots:
-            st.write(f"**{time_slot}**")
-            cols = st.columns(len(floors))
+            row_cols = st.columns([1.2] + [1]*len(floors) + [1.2])
+            row_cols[0].write(f"**{time_slot}**")
+            
+            row_total = 0
             for i, floor in enumerate(floors):
                 existing = date_data[(date_data["time_slot"] == time_slot) & (date_data["floor"] == floor)]["count"].values
                 existing_val = existing[0] if len(existing) > 0 else 0
-                edited_data[(time_slot, floor)] = cols[i].number_input(
-                    floor, min_value=0, value=int(existing_val), key=f"edit_{selected_date}_{time_slot}_{floor}"
+                
+                key = f"edit_{selected_date_str}_{time_slot}_{floor}"
+                count = row_cols[i+1].number_input(
+                    "", min_value=0, step=1, key=key, 
+                    label_visibility="collapsed",
+                    value=int(existing_val)
                 )
-            st.markdown("---")
+                edited_data[(time_slot, floor)] = count
+                row_total += count
+                floor_totals[floor] += count
+            
+            row_cols[-1].write(f"**{row_total}**")
+        
+        st.markdown("---")
+        total_cols = st.columns([1.2] + [1]*len(floors) + [1.2])
+        total_cols[0].write("**Total for this day**")
+        grand_total = 0
+        for i, floor in enumerate(floors):
+            total_cols[i+1].write(f"**{floor_totals[floor]}**")
+            grand_total += floor_totals[floor]
+        total_cols[-1].write(f"**{grand_total}**")
         
         col1, col2 = st.columns(2)
+        
         with col1:
-            if st.button("💾 SAVE CHANGES", type="primary", use_container_width=True):
+            if st.button("💾 SAVE CHANGES", type="primary"):
                 new_rows = []
                 for time_slot in time_slots:
                     for floor in floors:
                         new_rows.append({
-                            "date": selected_date.strftime("%Y-%m-%d"),
-                            "day": selected_date.strftime("%A"),
+                            "date": selected_date_str,
+                            "day": day_name,
                             "floor": floor,
                             "time_slot": time_slot,
                             "count": edited_data.get((time_slot, floor), 0)
                         })
                 
                 new_df = pd.DataFrame(new_rows)
-                df_all = df_all[df_all["date"] != selected_date]
+                df_all = df_all[df_all["date"] != selected_date_str]
                 df_all = pd.concat([df_all, new_df], ignore_index=True)
-                save_data_locally(df_all)
-                st.success("✅ Changes saved! Download the CSV above.")
-                st.balloons()
+                save_all_data(df_all)
+                st.success("✅ Changes saved!")
                 st.rerun()
         
         with col2:
-            if st.button("🗑️ DELETE THIS DAY'S DATA", use_container_width=True):
-                df_all = df_all[df_all["date"] != selected_date]
-                save_data_locally(df_all)
-                st.success("✅ Data deleted! Download the CSV above.")
+            if st.button("🗑️ DELETE THIS DAY"):
+                df_all = df_all[df_all["date"] != selected_date_str]
+                save_all_data(df_all)
+                st.success("✅ Data deleted!")
                 st.rerun()
-    else:
-        st.warning(f"No data found for {selected_date.strftime('%A, %B %d, %Y')}. Try another date.")
 
-# ========== PAGE 3: EXECUTIVE DASHBOARD ==========
+# ========== EXECUTIVE DASHBOARD (RICH VERSION) ==========
 elif page == "📊 Executive Dashboard":
     st.title("🏛️ Prempeh II Library - Executive Dashboard")
-    st.caption("Senior Data Analytics Report")
+    st.caption("Complete Analytics & Insights")
     
-    if len(df_all) == 0 or (len(df_all) > 0 and 'date' not in df_all.columns):
-        st.warning("No data yet. Add data first using 'Enter Data' page.")
+    if len(df_all) == 0:
+        st.warning("No data yet.")
         st.stop()
     
-    min_date = df_all["date"].min()
-    max_date = df_all["date"].max()
-    date_range = st.date_input("Date range", [min_date, max_date], key="dashboard_date")
+    # Prepare data
+    df_all['date_obj'] = pd.to_datetime(df_all['date'])
+    df_all['month'] = df_all['date_obj'].dt.strftime('%B')
+    df_all['year'] = df_all['date_obj'].dt.year
+    df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
+    df_all['weekday'] = df_all['date_obj'].dt.day_name()
     
-    mask = (df_all["date"] >= pd.to_datetime(date_range[0])) & (df_all["date"] <= pd.to_datetime(date_range[1]))
-    df = df_all[mask]
+    # Month selector
+    available_months = sorted(df_all['month_year'].unique(), reverse=True)
+    selected_month = st.selectbox("📅 Select Month", available_months)
+    
+    # Filter data
+    df = df_all[df_all['month_year'] == selected_month]
     
     if len(df) == 0:
-        st.warning("No data in selected range")
+        st.warning(f"No data for {selected_month}")
         st.stop()
     
-    total_visits = df["count"].sum()
-    days_counted = df["date"].nunique()
-    avg_daily = total_visits / days_counted if days_counted > 0 else 0
-    busiest_floor = df.groupby("floor")["count"].sum().idxmax()
-    busiest_time = df.groupby("time_slot")["count"].sum().idxmax()
-    peak_hour = max(df.groupby("time_slot")["count"].sum().items(), key=lambda x: x[1])[0]
+    # ========== TOP KPI ROW ==========
+    st.subheader(f"📊 {selected_month} - Key Performance Indicators")
     
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total Visits", f"{total_visits:,}")
-    k2.metric("Days", days_counted)
-    k3.metric("Avg Daily", f"{avg_daily:.0f}")
-    k4.metric("Busiest Floor", busiest_floor[:12])
-    k5.metric("Peak Hour", peak_hour)
+    total_visitors = df['count'].sum()
+    days_active = df['date'].nunique()
+    avg_daily = total_visitors / days_active if days_active > 0 else 0
+    
+    # Find busiest day
+    daily_totals = df.groupby('date_obj')['count'].sum()
+    busiest_day = daily_totals.idxmax().strftime('%A, %B %d')
+    busiest_day_count = daily_totals.max()
+    
+    # Find busiest floor and time
+    busiest_floor = df.groupby('floor')['count'].sum().idxmax()
+    busiest_time = df.groupby('time_slot')['count'].sum().idxmax()
+    
+    # Calculate growth (if previous month exists)
+    growth = "N/A"
+    month_index = available_months.index(selected_month)
+    if month_index + 1 < len(available_months):
+        prev_month = available_months[month_index + 1]
+        prev_total = df_all[df_all['month_year'] == prev_month]['count'].sum()
+        if prev_total > 0:
+            growth_pct = ((total_visitors - prev_total) / prev_total) * 100
+            growth = f"{growth_pct:+.1f}%"
+    
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1.metric("Total Visitors", f"{total_visitors:,}")
+    col2.metric("Days Active", days_active)
+    col3.metric("Avg Daily", f"{avg_daily:.0f}")
+    col4.metric("Busiest Day", busiest_day[:15], f"{busiest_day_count} visitors")
+    col5.metric("Peak Floor", busiest_floor[:12])
+    col6.metric("Growth vs Prev", growth)
     
     st.divider()
     
-    st.subheader("📈 Daily Traffic Trend")
-    daily_total = df.groupby("date")["count"].sum().reset_index()
-    fig1 = px.line(daily_total, x="date", y="count", markers=True, title="Total Visitors Per Day")
-    if len(daily_total) > 0:
-        fig1.add_hline(y=daily_total["count"].mean(), line_dash="dash", annotation_text=f"Average: {daily_total['count'].mean():.0f}")
+    # ========== DAILY TREND CHART ==========
+    st.subheader(f"📈 Daily Traffic Trend - {selected_month}")
+    daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
+    fig1 = px.line(daily_trend, x='date_obj', y='count', markers=True, 
+                   title=f"Daily Visitors in {selected_month}",
+                   labels={'date_obj': 'Date', 'count': 'Visitors'})
+    fig1.add_hline(y=daily_trend['count'].mean(), line_dash="dash", 
+                   annotation_text=f"Monthly Avg: {daily_trend['count'].mean():.0f}")
+    # Add max point annotation
+    max_point = daily_trend.loc[daily_trend['count'].idxmax()]
+    fig1.add_annotation(x=max_point['date_obj'], y=max_point['count'],
+                        text=f"Peak: {max_point['count']}", showarrow=True, arrowhead=1)
     st.plotly_chart(fig1, use_container_width=True)
     
-    c1, c2 = st.columns(2)
+    # ========== TWO COLUMN CHARTS ==========
+    col1, col2 = st.columns(2)
     
-    with c1:
+    with col1:
         st.subheader("🏢 Total by Floor")
-        floor_total = df.groupby("floor")["count"].sum().sort_values(ascending=True)
-        fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h', title="Visitors Per Floor")
+        floor_total = df.groupby('floor')['count'].sum().sort_values(ascending=True)
+        colors = ['#2ecc71' if i == floor_total.idxmax() else '#3498db' for i in floor_total.index]
+        fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h',
+                     title=f"Floor Usage in {selected_month}",
+                     labels={'x': 'Total Visitors', 'y': ''})
+        fig2.update_traces(marker_color=colors)
         st.plotly_chart(fig2, use_container_width=True)
+        
+        # Also show floor percentages
+        floor_pct = (floor_total / floor_total.sum() * 100).round(1)
+        st.caption("**Floor Distribution:**")
+        for floor, pct in floor_pct.items():
+            st.write(f"   - {floor}: {pct}%")
     
-    with c2:
+    with col2:
         st.subheader("⏰ Total by Time Slot")
-        time_total = df.groupby("time_slot")["count"].sum().reindex(time_slots)
-        fig3 = px.bar(x=time_total.index, y=time_total.values, title="Visitors By Time of Day")
+        time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots)
+        colors = ['#e74c3c' if i == time_total.idxmax() else '#3498db' for i in time_total.index]
+        fig3 = px.bar(x=time_total.index, y=time_total.values,
+                     title=f"Time Slot Usage in {selected_month}",
+                     labels={'x': 'Time', 'y': 'Total Visitors'})
+        fig3.update_traces(marker_color=colors)
         st.plotly_chart(fig3, use_container_width=True)
+        
+        # Time slot percentages
+        time_pct = (time_total / time_total.sum() * 100).round(1)
+        st.caption("**Time Distribution:**")
+        for time, pct in time_pct.items():
+            st.write(f"   - {time}: {pct}%")
     
+    st.divider()
+    
+    # ========== HEATMAPS ==========
     st.subheader("🔥 Advanced Analytics")
     
-    hm1, hm2 = st.columns(2)
+    heat1, heat2 = st.columns(2)
     
-    with hm1:
-        st.caption("Floor Usage by Time Slot")
-        pivot = df.groupby(["floor", "time_slot"])["count"].sum().unstack()
+    with heat1:
+        st.caption("Floor × Time Slot Heatmap")
+        pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack()
         pivot = pivot.reindex(columns=time_slots)
-        fig4 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd")
+        fig4 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd",
+                         title="Which floor is busy at which time?")
         fig4.update_layout(height=400)
         st.plotly_chart(fig4, use_container_width=True)
     
-    with hm2:
-        st.caption("Daily Pattern by Time Slot")
-        day_pivot = df.groupby(["day", "time_slot"])["count"].sum().unstack()
+    with heat2:
+        st.caption("Day × Time Slot Heatmap")
+        day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack()
         day_pivot = day_pivot.reindex(columns=time_slots)
-        day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-        day_pivot = day_pivot.reindex([d for d in day_order if d in day_pivot.index])
-        fig5 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd")
+        day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
+        fig5 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd",
+                         title="Which day is busy at which time?")
         fig5.update_layout(height=400)
         st.plotly_chart(fig5, use_container_width=True)
     
+    # ========== WEEKLY PATTERN ==========
+    st.subheader("📅 Weekly Pattern Analysis")
+    
+    weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order)
+    fig6 = px.bar(x=weekly_pattern.index, y=weekly_pattern.values,
+                  title=f"Weekly Traffic Pattern - {selected_month}",
+                  labels={'x': 'Day', 'y': 'Total Visitors'})
+    fig6.update_traces(marker_color='#3498db')
+    st.plotly_chart(fig6, use_container_width=True)
+    
+    # ========== DAILY TOTALS TABLE ==========
+    st.subheader("📋 Daily Totals")
+    
+    # Create daily summary table
+    daily_summary = df.groupby(['date_obj', 'weekday'])['count'].sum().reset_index()
+    daily_summary.columns = ['Date', 'Day', 'Total Visitors']
+    daily_summary['Date'] = daily_summary['Date'].dt.strftime('%B %d')
+    
+    # Add rank
+    daily_summary['Rank'] = daily_summary['Total Visitors'].rank(ascending=False).astype(int)
+    
+    # Highlight busiest day
+    st.dataframe(daily_summary.sort_values('Date'), use_container_width=True)
+    
+    # ========== KEY INSIGHTS ==========
     st.divider()
-    st.subheader("📊 Key Insights")
+    st.subheader("📊 Key Insights & Recommendations")
     
     insights = []
-    busiest_day_data = df.groupby("day")["count"].sum()
-    if len(busiest_day_data) > 0:
-        busiest_day = busiest_day_data.idxmax()
-        insights.append(f"• **{busiest_day}** is the busiest day of the week")
+    recommendations = []
     
-    time_ranking = df.groupby("time_slot")["count"].sum().sort_values(ascending=False)
-    if len(time_ranking) > 0:
-        insights.append(f"• **{time_ranking.index[0]}** is consistently the busiest time slot")
+    # Busiest day insight
+    busiest_day_name = daily_trend.loc[daily_trend['count'].idxmax(), 'date_obj'].strftime('%A, %B %d')
+    insights.append(f"📌 **Peak Day:** {busiest_day_name} was the busiest day with {busiest_day_count:,} visitors")
     
-    floor_ranking = df.groupby("floor")["count"].sum().sort_values(ascending=False)
-    if len(floor_ranking) > 0:
-        insights.append(f"• **{floor_ranking.index[0]}** sees the most traffic")
-        if len(floor_ranking) > 1:
-            insights.append(f"• **{floor_ranking.index[-1]}** is the quietest area")
+    # Quietest day
+    quietest_day_count = daily_trend['count'].min()
+    quietest_day_name = daily_trend.loc[daily_trend['count'].idxmin(), 'date_obj'].strftime('%A, %B %d')
+    insights.append(f"📌 **Quietest Day:** {quietest_day_name} had {quietest_day_count:,} visitors")
+    
+    # Peak hour insight
+    insights.append(f"📌 **Peak Time:** {busiest_time} is when most people visit")
+    
+    # Floor insights
+    quietest_floor = df.groupby('floor')['count'].sum().idxmin()
+    floor_ratio = (floor_total[busiest_floor] / floor_total.sum() * 100).round(1)
+    insights.append(f"📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
+    
+    # Recommendations
+    if busiest_time in ["4pm", "8pm"]:
+        recommendations.append("💡 Consider adding more staff during peak hours")
+    
+    if floor_ratio > 40:
+        recommendations.append("💡 The busiest floor may need more seating or space")
+    
+    if len(recommendations) == 0:
+        recommendations.append("💡 Continue tracking to identify more patterns")
     
     for insight in insights:
         st.write(insight)
+    
+    st.write("### 💡 Recommendations")
+    for rec in recommendations:
+        st.write(rec)
 
-# ========== PAGE 4: GENERATE REPORT ==========
+# ========== DAILY VIEW PAGE ==========
+elif page == "📅 Daily View":
+    st.title("📅 Daily Detail View")
+    
+    if len(df_all) == 0:
+        st.warning("No data yet.")
+        st.stop()
+    
+    df_all['date_obj'] = pd.to_datetime(df_all['date'])
+    all_dates = sorted(df_all['date_obj'].unique(), reverse=True)
+    
+    selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
+    
+    date_data = df_all[df_all['date_obj'] == selected_date]
+    
+    if len(date_data) > 0:
+        st.write(f"### Detailed Breakdown for {selected_date.strftime('%A, %B %d, %Y')}")
+        
+        daily_total = date_data['count'].sum()
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Total Visitors This Day", f"{daily_total:,}")
+        
+        # Compare to monthly average
+        df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
+        current_month = selected_date.strftime('%B %Y')
+        month_avg = df_all[df_all['month_year'] == current_month]['count'].sum() / df_all[df_all['month_year'] == current_month]['date'].nunique()
+        vs_avg = ((daily_total - month_avg) / month_avg * 100) if month_avg > 0 else 0
+        col2.metric("vs Monthly Average", f"{vs_avg:+.1f}%")
+        
+        # Hourly breakdown table
+        st.write("#### Hourly Breakdown by Floor")
+        pivot_table = date_data.pivot_table(index="time_slot", columns="floor", values="count", fill_value=0)
+        pivot_table["Total"] = pivot_table.sum(axis=1)
+        st.dataframe(pivot_table, use_container_width=True)
+        
+        # Floor totals chart
+        st.write("#### Floor Totals")
+        floor_totals = date_data.groupby('floor')['count'].sum().sort_values(ascending=False)
+        fig = px.bar(x=floor_totals.index, y=floor_totals.values, 
+                     title=f"Visitors by Floor on {selected_date.strftime('%B %d')}")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Time slot chart
+        st.write("#### Time Slot Totals")
+        time_totals = date_data.groupby('time_slot')['count'].sum().reindex(time_slots)
+        fig2 = px.bar(x=time_totals.index, y=time_totals.values,
+                      title=f"Visitors by Time on {selected_date.strftime('%B %d')}")
+        st.plotly_chart(fig2, use_container_width=True)
+
+# ========== EXPORT PAGE ==========
 else:
-    st.title("📄 Generate Monthly Report")
+    st.title("📄 Export Report")
     
-    if len(df_all) == 0 or (len(df_all) > 0 and 'date' not in df_all.columns):
-        st.warning("No data yet. Add data first.")
+    if len(df_all) == 0:
+        st.warning("No data yet.")
         st.stop()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        report_start = st.date_input("Start date", df_all["date"].min())
-    with col2:
-        report_end = st.date_input("End date", df_all["date"].max())
+    df_all['date_obj'] = pd.to_datetime(df_all['date'])
+    df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
     
-    df_report = df_all[(df_all["date"] >= pd.to_datetime(report_start)) & (df_all["date"] <= pd.to_datetime(report_end))]
+    available_months = sorted(df_all['month_year'].unique(), reverse=True)
+    selected_month = st.selectbox("Select month to export", available_months)
     
-    if len(df_report) == 0:
-        st.warning("No data in selected period")
-        st.stop()
+    df_export = df_all[df_all['month_year'] == selected_month]
     
-    total = df_report["count"].sum()
-    days = df_report["date"].nunique()
+    # Show summary
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Visitors", f"{df_export['count'].sum():,}")
+    col2.metric("Days", df_export['date'].nunique())
+    col3.metric("Avg Daily", f"{df_export['count'].sum() / df_export['date'].nunique():.0f}")
     
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("Report Period", f"{report_start} to {report_end}")
-    s2.metric("Total Visits", f"{total:,}")
-    s3.metric("Days", days)
-    s4.metric("Average Daily", f"{total/days:.0f}" if days > 0 else "0")
+    # Daily summary table
+    st.write("### Daily Summary")
+    daily_export = df_export.groupby('date')['count'].sum().reset_index()
+    daily_export.columns = ['Date', 'Total Visitors']
+    st.dataframe(daily_export, use_container_width=True)
     
-    if st.button("📊 Export to Excel", type="primary"):
-        with pd.ExcelWriter("prempeh_monthly_report.xlsx") as writer:
-            df_report.to_excel(writer, sheet_name="Raw Data", index=False)
-            df_report.groupby("floor")["count"].sum().to_excel(writer, sheet_name="By Floor")
-            df_report.groupby("time_slot")["count"].sum().to_excel(writer, sheet_name="By Time")
-            df_report.groupby("date")["count"].sum().to_excel(writer, sheet_name="Daily Total")
-        st.success("✅ Excel report saved!")
-        st.balloons()
+    csv_data = df_export.to_csv(index=False)
     
-    st.info("📁 Files are saved in your 'Prempeh Library' folder")
+    st.download_button(
+        label=f"📥 Download {selected_month} Report (CSV)",
+        data=csv_data,
+        file_name=f"prempeh_library_{selected_month.replace(' ', '_')}.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+    
+    st.info("Upload this CSV to Google Sheets to share with your boss.")
