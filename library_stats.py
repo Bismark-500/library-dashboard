@@ -15,17 +15,87 @@ days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 # Local CSV file
 LOCAL_DATA_FILE = "prempeh_library_all_data.csv"
 
+# ========== TIME FORMAT CONVERTER ==========
+def convert_time_format(time_str):
+    """Convert 24-hour format (11:00, 14:00, etc.) to 12-hour format (11am, 2pm, etc.)"""
+    if pd.isna(time_str):
+        return time_str
+    time_str = str(time_str)
+    time_map = {
+        "11:00": "11am",
+        "14:00": "2pm",
+        "16:00": "4pm",
+        "20:00": "8pm",
+        "11:0": "11am",
+        "14:0": "2pm",
+        "16:0": "4pm",
+        "20:0": "8pm",
+        "11": "11am",
+        "14": "2pm",
+        "16": "4pm",
+        "20": "8pm"
+    }
+    return time_map.get(time_str, time_str)
+
+# ========== DATE FORMAT CONVERTER ==========
+def convert_date_format(date_str):
+    """Convert various date formats to YYYY-MM-DD"""
+    if pd.isna(date_str):
+        return date_str
+    date_str = str(date_str)
+    
+    # If already in YYYY-MM-DD format
+    if date_str.count('-') == 2 and len(date_str.split('-')[0]) == 4:
+        return date_str
+    
+    # Try dd/mm/yyyy format
+    try:
+        if '/' in date_str:
+            parts = date_str.split('/')
+            if len(parts[0]) <= 2:  # dd/mm/yyyy
+                return datetime.strptime(date_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except:
+        pass
+    
+    # Try other formats
+    try:
+        return pd.to_datetime(date_str).strftime("%Y-%m-%d")
+    except:
+        return date_str
+
+# ========== CLEAN AND CONVERT DATA ==========
+def clean_data(df):
+    """Clean and convert date and time formats"""
+    if len(df) == 0:
+        return df
+    
+    df = df.copy()
+    
+    # Convert time format
+    if 'time_slot' in df.columns:
+        df['time_slot'] = df['time_slot'].apply(convert_time_format)
+    
+    # Convert date format
+    if 'date' in df.columns:
+        df['date'] = df['date'].apply(convert_date_format)
+    
+    return df
+
 # ========== LOAD DATA ==========
 def load_all_data():
     if os.path.exists(LOCAL_DATA_FILE):
         df = pd.read_csv(LOCAL_DATA_FILE)
+        df = clean_data(df)
         return df
     return pd.DataFrame(columns=["date", "day", "floor", "time_slot", "count"])
 
 def save_all_data(df):
+    # Clean before saving
+    df = clean_data(df)
     df.to_csv(LOCAL_DATA_FILE, index=False)
     return True
 
+# Load data
 df_all = load_all_data()
 
 # ========== SIDEBAR ==========
@@ -139,6 +209,7 @@ if page == "📝 Enter Data":
         else:
             df_all = new_df
         
+        df_all = clean_data(df_all)
         save_all_data(df_all)
         st.success(f"✅ Data for {selected_day} SAVED!")
         st.balloons()
@@ -220,6 +291,7 @@ elif page == "✏️ Edit Data":
                 new_df = pd.DataFrame(new_rows)
                 df_all = df_all[df_all["date"] != selected_date_str]
                 df_all = pd.concat([df_all, new_df], ignore_index=True)
+                df_all = clean_data(df_all)
                 save_all_data(df_all)
                 st.success("✅ Changes saved!")
                 st.rerun()
@@ -231,7 +303,7 @@ elif page == "✏️ Edit Data":
                 st.success("✅ Data deleted!")
                 st.rerun()
 
-# ========== EXECUTIVE DASHBOARD (RICH VERSION) ==========
+# ========== EXECUTIVE DASHBOARD ==========
 elif page == "📊 Executive Dashboard":
     st.title("🏛️ Prempeh II Library - Executive Dashboard")
     st.caption("Complete Analytics & Insights")
@@ -265,32 +337,19 @@ elif page == "📊 Executive Dashboard":
     days_active = df['date'].nunique()
     avg_daily = total_visitors / days_active if days_active > 0 else 0
     
-    # Find busiest day
     daily_totals = df.groupby('date_obj')['count'].sum()
     busiest_day = daily_totals.idxmax().strftime('%A, %B %d')
     busiest_day_count = daily_totals.max()
     
-    # Find busiest floor and time
     busiest_floor = df.groupby('floor')['count'].sum().idxmax()
     busiest_time = df.groupby('time_slot')['count'].sum().idxmax()
     
-    # Calculate growth (if previous month exists)
-    growth = "N/A"
-    month_index = available_months.index(selected_month)
-    if month_index + 1 < len(available_months):
-        prev_month = available_months[month_index + 1]
-        prev_total = df_all[df_all['month_year'] == prev_month]['count'].sum()
-        if prev_total > 0:
-            growth_pct = ((total_visitors - prev_total) / prev_total) * 100
-            growth = f"{growth_pct:+.1f}%"
-    
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total Visitors", f"{total_visitors:,}")
     col2.metric("Days Active", days_active)
     col3.metric("Avg Daily", f"{avg_daily:.0f}")
     col4.metric("Busiest Day", busiest_day[:15], f"{busiest_day_count} visitors")
     col5.metric("Peak Floor", busiest_floor[:12])
-    col6.metric("Growth vs Prev", growth)
     
     st.divider()
     
@@ -302,10 +361,6 @@ elif page == "📊 Executive Dashboard":
                    labels={'date_obj': 'Date', 'count': 'Visitors'})
     fig1.add_hline(y=daily_trend['count'].mean(), line_dash="dash", 
                    annotation_text=f"Monthly Avg: {daily_trend['count'].mean():.0f}")
-    # Add max point annotation
-    max_point = daily_trend.loc[daily_trend['count'].idxmax()]
-    fig1.add_annotation(x=max_point['date_obj'], y=max_point['count'],
-                        text=f"Peak: {max_point['count']}", showarrow=True, arrowhead=1)
     st.plotly_chart(fig1, use_container_width=True)
     
     # ========== TWO COLUMN CHARTS ==========
@@ -314,14 +369,11 @@ elif page == "📊 Executive Dashboard":
     with col1:
         st.subheader("🏢 Total by Floor")
         floor_total = df.groupby('floor')['count'].sum().sort_values(ascending=True)
-        colors = ['#2ecc71' if i == floor_total.idxmax() else '#3498db' for i in floor_total.index]
         fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h',
                      title=f"Floor Usage in {selected_month}",
                      labels={'x': 'Total Visitors', 'y': ''})
-        fig2.update_traces(marker_color=colors)
         st.plotly_chart(fig2, use_container_width=True)
         
-        # Also show floor percentages
         floor_pct = (floor_total / floor_total.sum() * 100).round(1)
         st.caption("**Floor Distribution:**")
         for floor, pct in floor_pct.items():
@@ -330,14 +382,11 @@ elif page == "📊 Executive Dashboard":
     with col2:
         st.subheader("⏰ Total by Time Slot")
         time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots)
-        colors = ['#e74c3c' if i == time_total.idxmax() else '#3498db' for i in time_total.index]
         fig3 = px.bar(x=time_total.index, y=time_total.values,
                      title=f"Time Slot Usage in {selected_month}",
                      labels={'x': 'Time', 'y': 'Total Visitors'})
-        fig3.update_traces(marker_color=colors)
         st.plotly_chart(fig3, use_container_width=True)
         
-        # Time slot percentages
         time_pct = (time_total / time_total.sum() * 100).round(1)
         st.caption("**Time Distribution:**")
         for time, pct in time_pct.items():
@@ -354,8 +403,7 @@ elif page == "📊 Executive Dashboard":
         st.caption("Floor × Time Slot Heatmap")
         pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack()
         pivot = pivot.reindex(columns=time_slots)
-        fig4 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd",
-                         title="Which floor is busy at which time?")
+        fig4 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd")
         fig4.update_layout(height=400)
         st.plotly_chart(fig4, use_container_width=True)
     
@@ -364,75 +412,25 @@ elif page == "📊 Executive Dashboard":
         day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack()
         day_pivot = day_pivot.reindex(columns=time_slots)
         day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
-        fig5 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd",
-                         title="Which day is busy at which time?")
+        fig5 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="YlOrRd")
         fig5.update_layout(height=400)
         st.plotly_chart(fig5, use_container_width=True)
     
     # ========== WEEKLY PATTERN ==========
     st.subheader("📅 Weekly Pattern Analysis")
-    
     weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order)
     fig6 = px.bar(x=weekly_pattern.index, y=weekly_pattern.values,
                   title=f"Weekly Traffic Pattern - {selected_month}",
                   labels={'x': 'Day', 'y': 'Total Visitors'})
-    fig6.update_traces(marker_color='#3498db')
     st.plotly_chart(fig6, use_container_width=True)
     
     # ========== DAILY TOTALS TABLE ==========
     st.subheader("📋 Daily Totals")
-    
-    # Create daily summary table
     daily_summary = df.groupby(['date_obj', 'weekday'])['count'].sum().reset_index()
     daily_summary.columns = ['Date', 'Day', 'Total Visitors']
     daily_summary['Date'] = daily_summary['Date'].dt.strftime('%B %d')
-    
-    # Add rank
     daily_summary['Rank'] = daily_summary['Total Visitors'].rank(ascending=False).astype(int)
-    
-    # Highlight busiest day
     st.dataframe(daily_summary.sort_values('Date'), use_container_width=True)
-    
-    # ========== KEY INSIGHTS ==========
-    st.divider()
-    st.subheader("📊 Key Insights & Recommendations")
-    
-    insights = []
-    recommendations = []
-    
-    # Busiest day insight
-    busiest_day_name = daily_trend.loc[daily_trend['count'].idxmax(), 'date_obj'].strftime('%A, %B %d')
-    insights.append(f"📌 **Peak Day:** {busiest_day_name} was the busiest day with {busiest_day_count:,} visitors")
-    
-    # Quietest day
-    quietest_day_count = daily_trend['count'].min()
-    quietest_day_name = daily_trend.loc[daily_trend['count'].idxmin(), 'date_obj'].strftime('%A, %B %d')
-    insights.append(f"📌 **Quietest Day:** {quietest_day_name} had {quietest_day_count:,} visitors")
-    
-    # Peak hour insight
-    insights.append(f"📌 **Peak Time:** {busiest_time} is when most people visit")
-    
-    # Floor insights
-    quietest_floor = df.groupby('floor')['count'].sum().idxmin()
-    floor_ratio = (floor_total[busiest_floor] / floor_total.sum() * 100).round(1)
-    insights.append(f"📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
-    
-    # Recommendations
-    if busiest_time in ["4pm", "8pm"]:
-        recommendations.append("💡 Consider adding more staff during peak hours")
-    
-    if floor_ratio > 40:
-        recommendations.append("💡 The busiest floor may need more seating or space")
-    
-    if len(recommendations) == 0:
-        recommendations.append("💡 Continue tracking to identify more patterns")
-    
-    for insight in insights:
-        st.write(insight)
-    
-    st.write("### 💡 Recommendations")
-    for rec in recommendations:
-        st.write(rec)
 
 # ========== DAILY VIEW PAGE ==========
 elif page == "📅 Daily View":
@@ -453,36 +451,18 @@ elif page == "📅 Daily View":
         st.write(f"### Detailed Breakdown for {selected_date.strftime('%A, %B %d, %Y')}")
         
         daily_total = date_data['count'].sum()
+        st.metric("Total Visitors This Day", f"{daily_total:,}")
         
-        col1, col2 = st.columns(2)
-        col1.metric("Total Visitors This Day", f"{daily_total:,}")
-        
-        # Compare to monthly average
-        df_all['month_year'] = df_all['date_obj'].dt.strftime('%B %Y')
-        current_month = selected_date.strftime('%B %Y')
-        month_avg = df_all[df_all['month_year'] == current_month]['count'].sum() / df_all[df_all['month_year'] == current_month]['date'].nunique()
-        vs_avg = ((daily_total - month_avg) / month_avg * 100) if month_avg > 0 else 0
-        col2.metric("vs Monthly Average", f"{vs_avg:+.1f}%")
-        
-        # Hourly breakdown table
         st.write("#### Hourly Breakdown by Floor")
         pivot_table = date_data.pivot_table(index="time_slot", columns="floor", values="count", fill_value=0)
         pivot_table["Total"] = pivot_table.sum(axis=1)
         st.dataframe(pivot_table, use_container_width=True)
         
-        # Floor totals chart
         st.write("#### Floor Totals")
         floor_totals = date_data.groupby('floor')['count'].sum().sort_values(ascending=False)
         fig = px.bar(x=floor_totals.index, y=floor_totals.values, 
                      title=f"Visitors by Floor on {selected_date.strftime('%B %d')}")
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Time slot chart
-        st.write("#### Time Slot Totals")
-        time_totals = date_data.groupby('time_slot')['count'].sum().reindex(time_slots)
-        fig2 = px.bar(x=time_totals.index, y=time_totals.values,
-                      title=f"Visitors by Time on {selected_date.strftime('%B %d')}")
-        st.plotly_chart(fig2, use_container_width=True)
 
 # ========== EXPORT PAGE ==========
 else:
@@ -500,17 +480,10 @@ else:
     
     df_export = df_all[df_all['month_year'] == selected_month]
     
-    # Show summary
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Visitors", f"{df_export['count'].sum():,}")
     col2.metric("Days", df_export['date'].nunique())
     col3.metric("Avg Daily", f"{df_export['count'].sum() / df_export['date'].nunique():.0f}")
-    
-    # Daily summary table
-    st.write("### Daily Summary")
-    daily_export = df_export.groupby('date')['count'].sum().reset_index()
-    daily_export.columns = ['Date', 'Total Visitors']
-    st.dataframe(daily_export, use_container_width=True)
     
     csv_data = df_export.to_csv(index=False)
     
