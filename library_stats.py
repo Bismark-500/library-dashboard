@@ -16,6 +16,55 @@ import base64
 
 st.set_page_config(page_title="Prempeh II Library", layout="wide")
 
+# ========== GLOBAL THEME / CSS ==========
+st.markdown("""
+<style>
+.stApp { background: linear-gradient(180deg, #eaf5fb 0%, #dbeef9 100%); }
+.dash-banner {
+    background: linear-gradient(90deg, #eaf6fb 0%, #cfe9f7 100%);
+    border: 2px solid #123456; border-radius: 10px;
+    padding: 14px 24px; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 14px;
+}
+.dash-banner .icon { font-size: 34px; }
+.dash-banner h1 {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #123456; font-size: 32px; margin: 0; letter-spacing: 1px;
+}
+.dash-banner p { margin: 0; color: #35597a; font-size: 13px; font-weight: 600; }
+.kpi-card {
+    background: #ffffff; border-radius: 12px; padding: 14px 8px 10px 8px;
+    text-align: center; box-shadow: 0 4px 10px rgba(20,60,90,0.15);
+    border-top: 5px solid #2E86AB; height: 100%;
+}
+.kpi-label {
+    font-size: 11px; font-weight: 800; color: #5a7d97;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+}
+.kpi-value { font-size: 24px; font-weight: 800; color: #123456; }
+.chart-panel {
+    background: #ffffff; border-radius: 12px; padding: 10px 16px 2px 16px;
+    box-shadow: 0 4px 10px rgba(20,60,90,0.12); margin-bottom: 16px;
+}
+.chart-panel h4 {
+    color: #123456; font-size: 14px; font-weight: 800; margin: 4px 0 0 0;
+    border-bottom: 2px solid #d6ecf8; padding-bottom: 6px;
+}
+.filter-panel {
+    background: #ffffff; border-radius: 12px; padding: 14px 14px 4px 14px;
+    box-shadow: 0 4px 10px rgba(20,60,90,0.12); height: 100%;
+}
+.filter-title {
+    font-size: 12px; font-weight: 800; color: #123456; margin: 12px 0 2px 0;
+    border-bottom: 2px solid #123456; padding-bottom: 4px; text-transform: uppercase;
+}
+.insight-panel {
+    background: #ffffff; border-radius: 12px; padding: 14px 18px;
+    box-shadow: 0 4px 10px rgba(20,60,90,0.12); margin-bottom: 16px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ========== YOUR GOOGLE SHEET ID ==========
 SHEET_ID = "1NG8yGF392pDoKE7JRunwbfRU1PAAcnoBH6rnSmXs-wo"
 
@@ -406,9 +455,6 @@ if page == "📝 Add/Edit Days":
 
 # ========== PAGE 2: EXECUTIVE DASHBOARD ==========
 elif page == "📊 Executive Dashboard":
-    st.title("🏛️ Prempeh II Library")
-    st.caption("Executive Dashboard - Real-time Library Analytics")
-    
     display_df = st.session_state.df_working
     
     if len(display_df) == 0:
@@ -420,234 +466,247 @@ elif page == "📊 Executive Dashboard":
     temp_df['month_year'] = temp_df['date_obj'].dt.strftime('%B %Y')
     temp_df['weekday'] = temp_df['date_obj'].dt.day_name()
     
-    available_months = sorted(temp_df['month_year'].unique(), reverse=True)
-    selected_month = st.selectbox("📅 Select Month", available_months, key="dashboard_month")
-    
-    df = temp_df[temp_df['month_year'] == selected_month]
-    
-    if len(df) == 0:
-        st.warning(f"No data for {selected_month}")
-        st.stop()
-    
-    # ========== KPI CARDS ==========
-    total_visitors = df['count'].sum()
-    days_active = df['date'].nunique()
-    avg_daily = total_visitors / days_active if days_active > 0 else 0
-    
-    daily_totals = df.groupby('date_obj')['count'].sum()
-    busiest_day = daily_totals.idxmax().strftime('%A, %B %d') if len(daily_totals) > 0 else "N/A"
-    busiest_day_count = daily_totals.max() if len(daily_totals) > 0 else 0
-    
-    busiest_floor = df.groupby('floor')['count'].sum().idxmax()
-    busiest_time = df.groupby('time_slot')['count'].sum().idxmax()
-    
     available_months_list = sorted(temp_df['month_year'].unique(), reverse=True)
-    growth = "N/A"
-    month_index = available_months_list.index(selected_month)
-    if month_index + 1 < len(available_months_list):
-        prev_month = available_months_list[month_index + 1]
-        prev_total = temp_df[temp_df['month_year'] == prev_month]['count'].sum()
-        if prev_total > 0:
-            growth_pct = ((total_visitors - prev_total) / prev_total) * 100
-            growth = f"{growth_pct:+.1f}%"
+    available_weekdays = [d for d in days_order if d in temp_df['weekday'].unique()]
     
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    # palette used across every chart on this page (gives the "3D" glossy feel via shading + pull)
+    palette = ['#2E86AB', '#48C9B0', '#F5B041', '#EB5757', '#5DADE2', '#A569BD', '#58D68D', '#F1948A']
     
-    with col1:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📊 TOTAL VISITORS</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>{total_visitors:,}</h2>
-        </div>
-        """, unsafe_allow_html=True)
+    main_col, filter_col = st.columns([5, 1.15])
     
-    with col2:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📅 DAYS ACTIVE</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>{days_active}</h2>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📈 AVERAGE DAILY</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>{avg_daily:.0f}</h2>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>🏆 BUSIEST DAY</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_day[:12]}</h4>
-            <p style='font-size: 12px; margin: 0;'>{busiest_day_count} visitors</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col5:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>🏢 PEAK FLOOR</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_floor[:12]}</h4>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col6:
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
-            <p style='font-size: 12px; margin: 0; opacity: 0.8;'>⏰ PEAK TIME</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_time}</h4>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-    if growth != "N/A":
-        if float(growth.strip('%')) > 0:
-            st.success(f"📈 **Growth:** {growth} increase compared to previous month")
-        elif float(growth.strip('%')) < 0:
-            st.warning(f"📉 **Decline:** {growth} decrease compared to previous month")
-        else:
-            st.info(f"📊 **Stable:** No significant change compared to previous month")
-    
-    st.divider()
-    
-    # ========== CHARTS ==========
-    st.subheader(f"📈 Daily Traffic Trend - {selected_month}")
-    daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
-    if len(daily_trend) > 0:
-        fig1 = px.line(daily_trend, x='date_obj', y='count', markers=True,
-                       color_discrete_sequence=['#667eea'])
-        fig1.update_traces(line=dict(width=3), marker=dict(size=8))
-        fig1.add_hline(y=daily_trend['count'].mean(), line_dash="dash", 
-                       annotation_text=f"Monthly Avg: {daily_trend['count'].mean():.0f}",
-                       line_color="#764ba2")
-        fig1.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.05)')
-        )
-        st.plotly_chart(fig1, use_container_width=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🏢 Total by Floor")
-        floor_total = df.groupby('floor')['count'].sum().sort_values(ascending=True)
-        colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#43e97b']
-        fig2 = px.bar(x=floor_total.values, y=floor_total.index, orientation='h',
-                     color_discrete_sequence=colors[:len(floor_total)])
-        fig2.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=False)
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+    # ---------- FILTER / SLICER PANEL (right side) ----------
+    with filter_col:
+        st.markdown("<div class='filter-panel'>", unsafe_allow_html=True)
+        st.markdown("<div class='filter-title'>📅 Month</div>", unsafe_allow_html=True)
+        selected_month = st.selectbox("Month", available_months_list, key="dashboard_month", label_visibility="collapsed")
         
-        floor_pct = (floor_total / floor_total.sum() * 100).round(1)
-        st.caption("**📊 Floor Distribution:**")
-        for floor, pct in floor_pct.items():
-            st.write(f"   - {floor}: {pct}%")
+        st.markdown("<div class='filter-title'>🏢 Floor</div>", unsafe_allow_html=True)
+        floor_filter = st.multiselect("Floor", floors, default=floors, key="floor_filter", label_visibility="collapsed")
+        
+        st.markdown("<div class='filter-title'>⏰ Time Slot</div>", unsafe_allow_html=True)
+        time_filter = st.multiselect("Time Slot", time_slots, default=time_slots, key="time_filter", label_visibility="collapsed")
+        
+        st.markdown("<div class='filter-title'>📆 Day</div>", unsafe_allow_html=True)
+        day_filter = st.multiselect("Day", available_weekdays, default=available_weekdays, key="day_filter", label_visibility="collapsed")
+        st.markdown("</div>", unsafe_allow_html=True)
     
-    with col2:
-        st.subheader("⏰ Total by Time Slot")
-        time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots)
-        colors = ['#4facfe', '#43e97b', '#fa709a', '#f093fb']
-        fig3 = px.bar(x=time_total.index, y=time_total.values,
-                     color_discrete_sequence=colors[:len(time_total)])
-        fig3.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.05)')
+    df = temp_df[
+        (temp_df['month_year'] == selected_month) &
+        (temp_df['floor'].isin(floor_filter if floor_filter else floors)) &
+        (temp_df['time_slot'].isin(time_filter if time_filter else time_slots)) &
+        (temp_df['weekday'].isin(day_filter if day_filter else available_weekdays))
+    ]
+    
+    with main_col:
+        # ---------- BANNER ----------
+        st.markdown("""
+        <div class='dash-banner'>
+            <div class='icon'>🏛️📚</div>
+            <div>
+                <h1>PREMPEH II LIBRARY DASHBOARD</h1>
+                <p>Real-Time Visitor Analytics</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if len(df) == 0:
+            st.warning(f"No data for the selected filters in {selected_month}")
+            st.stop()
+        
+        # ---------- KPI METRICS ----------
+        total_visitors = df['count'].sum()
+        days_active = df['date'].nunique()
+        avg_daily = total_visitors / days_active if days_active > 0 else 0
+        
+        daily_totals = df.groupby('date_obj')['count'].sum()
+        busiest_day = daily_totals.idxmax().strftime('%a, %b %d') if len(daily_totals) > 0 else "N/A"
+        
+        busiest_floor = df.groupby('floor')['count'].sum().idxmax()
+        busiest_time = df.groupby('time_slot')['count'].sum().idxmax()
+        
+        kpi_accents = ['#2E86AB', '#48C9B0', '#F5B041', '#EB5757', '#A569BD']
+        k1, k2, k3, k4, k5 = st.columns(5)
+        kpi_defs = [
+            (k1, "Total Visitors", f"{total_visitors:,}"),
+            (k2, "Days Active", f"{days_active}"),
+            (k3, "Avg Daily", f"{avg_daily:.0f}"),
+            (k4, "Busiest Floor", busiest_floor),
+            (k5, "Peak Time", busiest_time),
+        ]
+        for i, (col, label, value) in enumerate(kpi_defs):
+            with col:
+                st.markdown(f"""
+                <div class='kpi-card' style='border-top-color:{kpi_accents[i]};'>
+                    <div class='kpi-label'>{label}</div>
+                    <div class='kpi-value' style='font-size:{"20px" if len(str(value))>10 else "24px"}'>{value}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.write("")
+        
+        # ---------- CHART ROW 1 ----------
+        r1c1, r1c2, r1c3 = st.columns([1.1, 1.1, 1])
+        
+        with r1c1:
+            st.markdown("<div class='chart-panel'><h4>📊 Visitors by Floor</h4>", unsafe_allow_html=True)
+            floor_total = df.groupby('floor')['count'].sum().reindex(floors).fillna(0)
+            fig_floor = go.Figure(go.Bar(
+                x=floor_total.index, y=floor_total.values,
+                marker=dict(color=palette[:len(floor_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+                text=floor_total.values, textposition='outside'
+            ))
+            fig_floor.update_layout(
+                height=290, margin=dict(l=10, r=10, t=10, b=60),
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(tickangle=-30, showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
+            )
+            st.plotly_chart(fig_floor, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with r1c2:
+            st.markdown("<div class='chart-panel'><h4>⏰ Visitors by Time Slot</h4>", unsafe_allow_html=True)
+            time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0).sort_values()
+            fig_time = go.Figure(go.Bar(
+                x=time_total.values, y=time_total.index, orientation='h',
+                marker=dict(color=palette[:len(time_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+                text=time_total.values, textposition='outside'
+            ))
+            fig_time.update_layout(
+                height=290, margin=dict(l=10, r=20, t=10, b=10),
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False), yaxis=dict(showgrid=False)
+            )
+            st.plotly_chart(fig_time, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with r1c3:
+            st.markdown("<div class='chart-panel'><h4>🏢 Floor Distribution</h4>", unsafe_allow_html=True)
+            fig_floor_pie = go.Figure(go.Pie(
+                labels=floor_total.index, values=floor_total.values, hole=0.35,
+                pull=[0.06 if v == floor_total.max() else 0 for v in floor_total.values],
+                marker=dict(colors=palette[:len(floor_total)], line=dict(color='white', width=2)),
+                textinfo='percent'
+            ))
+            fig_floor_pie.update_layout(
+                height=290, margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                legend=dict(orientation='h', yanchor='bottom', y=-0.25, font=dict(size=9))
+            )
+            st.plotly_chart(fig_floor_pie, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        # ---------- CHART ROW 2 ----------
+        r2c1, r2c2, r2c3 = st.columns([1.3, 1, 1])
+        
+        with r2c1:
+            st.markdown(f"<div class='chart-panel'><h4>📈 Daily Visitor Trend — {selected_month}</h4>", unsafe_allow_html=True)
+            daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
+            fig_trend = px.line(daily_trend, x='date_obj', y='count', markers=True,
+                                 color_discrete_sequence=['#2E86AB'])
+            fig_trend.update_traces(line=dict(width=3), marker=dict(size=8, color='#EB5757'))
+            fig_trend.add_hline(y=daily_trend['count'].mean(), line_dash="dash",
+                                 annotation_text=f"Avg: {daily_trend['count'].mean():.0f}",
+                                 line_color="#A569BD")
+            fig_trend.update_layout(
+                height=300, margin=dict(l=10, r=10, t=10, b=10),
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, title=None), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)', title=None)
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with r2c2:
+            st.markdown("<div class='chart-panel'><h4>🌓 Early vs Late Week</h4>", unsafe_allow_html=True)
+            early_days = ["Monday", "Tuesday", "Wednesday"]
+            late_days = ["Thursday", "Friday"]
+            early_total = df[df['weekday'].isin(early_days)]['count'].sum()
+            late_total = df[df['weekday'].isin(late_days)]['count'].sum()
+            fig_split = go.Figure(go.Pie(
+                labels=["Mon–Wed", "Thu–Fri"], values=[early_total, late_total], hole=0,
+                pull=[0.08, 0], marker=dict(colors=['#2E86AB', '#F5B041'], line=dict(color='white', width=2)),
+                textinfo='percent'
+            ))
+            fig_split.update_layout(
+                height=300, margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
+            )
+            st.plotly_chart(fig_split, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with r2c3:
+            st.markdown("<div class='chart-panel'><h4>⏱️ Time Slot Share</h4>", unsafe_allow_html=True)
+            time_total_ord = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0)
+            fig_time_pie = go.Figure(go.Pie(
+                labels=time_total_ord.index, values=time_total_ord.values, hole=0,
+                pull=[0.1 if v == time_total_ord.max() else 0.02 for v in time_total_ord.values],
+                marker=dict(colors=palette[:len(time_total_ord)], line=dict(color='white', width=2)),
+                textinfo='percent'
+            ))
+            fig_time_pie.update_layout(
+                height=300, margin=dict(l=10, r=10, t=10, b=10),
+                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
+            )
+            st.plotly_chart(fig_time_pie, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        # ---------- ADVANCED ANALYTICS (heatmaps + weekly pattern) ----------
+        r3c1, r3c2 = st.columns(2)
+        with r3c1:
+            st.markdown("<div class='chart-panel'><h4>🔥 Floor × Time Slot Heatmap</h4>", unsafe_allow_html=True)
+            pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
+            fig_heat1 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
+                                   labels={'x': 'Time Slot', 'y': 'Floor', 'color': 'Visitors'})
+            fig_heat1.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_heat1, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        with r3c2:
+            st.markdown("<div class='chart-panel'><h4>🔥 Day × Time Slot Heatmap</h4>", unsafe_allow_html=True)
+            day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
+            day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
+            fig_heat2 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
+                                   labels={'x': 'Time Slot', 'y': 'Day', 'color': 'Visitors'})
+            fig_heat2.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_heat2, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<div class='chart-panel'><h4>📅 Weekly Pattern</h4>", unsafe_allow_html=True)
+        weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order).dropna()
+        fig_week = go.Figure(go.Bar(
+            x=weekly_pattern.index, y=weekly_pattern.values,
+            marker=dict(color=palette[:len(weekly_pattern)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+            text=weekly_pattern.values, textposition='outside'
+        ))
+        fig_week.update_layout(
+            height=280, margin=dict(l=10, r=10, t=10, b=10),
+            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
         )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig_week, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         
-        time_pct = (time_total / time_total.sum() * 100).round(1)
-        st.caption("**📊 Time Distribution:**")
-        for time, pct in time_pct.items():
-            st.write(f"   - {time}: {pct}%")
-    
-    st.divider()
-    
-    # ========== HEATMAPS ==========
-    st.subheader("🔥 Advanced Analytics")
-    
-    heat1, heat2 = st.columns(2)
-    
-    with heat1:
-        st.caption("Floor × Time Slot Heatmap")
-        pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack()
-        pivot = pivot.reindex(columns=time_slots)
-        fig4 = px.imshow(pivot, text_auto=True, aspect="auto", 
-                        color_continuous_scale="YlOrRd",
-                        labels={'x': 'Time Slot', 'y': 'Floor', 'color': 'Visitors'})
-        fig4.update_layout(height=400)
-        st.plotly_chart(fig4, use_container_width=True)
-    
-    with heat2:
-        st.caption("Day × Time Slot Heatmap")
-        day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack()
-        day_pivot = day_pivot.reindex(columns=time_slots)
-        day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
-        fig5 = px.imshow(day_pivot, text_auto=True, aspect="auto", 
-                        color_continuous_scale="YlOrRd",
-                        labels={'x': 'Time Slot', 'y': 'Day', 'color': 'Visitors'})
-        fig5.update_layout(height=400)
-        st.plotly_chart(fig5, use_container_width=True)
-    
-    st.subheader("📅 Weekly Pattern Analysis")
-    weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order)
-    colors = ['#667eea', '#4facfe', '#43e97b', '#f093fb', '#fa709a']
-    fig6 = px.bar(x=weekly_pattern.index, y=weekly_pattern.values,
-                 color_discrete_sequence=colors[:len(weekly_pattern)])
-    fig6.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.05)')
-    )
-    st.plotly_chart(fig6, use_container_width=True)
-    
-    # ========== KEY INSIGHTS ==========
-    st.divider()
-    st.subheader("📊 Key Insights")
-    
-    insights = []
-    
-    if len(daily_totals) > 0:
-        busiest_day_name = daily_totals.idxmax().strftime('%A, %B %d')
-        insights.append(f"📌 **Peak Day:** {busiest_day_name} was the busiest day with {busiest_day_count:,} visitors")
+        # ---------- KEY INSIGHTS ----------
+        quietest_floor = df.groupby('floor')['count'].sum().idxmin()
+        floor_ratio = (df.groupby('floor')['count'].sum()[busiest_floor] / df['count'].sum() * 100).round(1)
         
-        quietest_day_count = daily_totals.min()
-        quietest_day_name = daily_totals.idxmin().strftime('%A, %B %d')
-        insights.append(f"📌 **Quietest Day:** {quietest_day_name} had {quietest_day_count:,} visitors")
-    
-    insights.append(f"📌 **Peak Time:** {busiest_time} is when most people visit")
-    
-    quietest_floor = df.groupby('floor')['count'].sum().idxmin()
-    floor_ratio = (df.groupby('floor')['count'].sum()[busiest_floor] / df['count'].sum() * 100).round(1)
-    insights.append(f"📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
-    
-    insights.append(f"📌 **Average Daily:** {avg_daily:.0f} visitors per day")
-    
-    st.write("### 💡 Recommendations")
-    if busiest_time in ["4pm", "8pm"]:
-        st.info("💡 Consider adding more staff during peak hours")
-    if floor_ratio > 40:
-        st.info("💡 The busiest floor may need more seating or space")
-    if days_active < 5:
-        st.info("💡 Consider collecting data for more days to identify patterns")
-    if len(insights) > 0:
-        for insight in insights:
-            st.write(insight)
-    
-    if st.session_state.has_unsaved_changes:
-        st.warning("⚠️ You have unsaved changes. The dashboard shows UNSAVED data. Click 'SAVE ALL CHANGES' in sidebar to save to CSV.")
+        st.markdown("<div class='insight-panel'>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#123456;margin-top:0;'>💡 Key Insights & Recommendations</h4>", unsafe_allow_html=True)
+        st.markdown(f"- 📌 **Peak Day:** {busiest_day} was the busiest day")
+        st.markdown(f"- 📌 **Peak Time:** {busiest_time} is when most people visit")
+        st.markdown(f"- 📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
+        st.markdown(f"- 📌 **Average Daily:** {avg_daily:.0f} visitors per day")
+        if busiest_time in ["4pm", "8pm"]:
+            st.markdown("- 💡 Consider adding more staff during peak hours")
+        if floor_ratio > 40:
+            st.markdown(f"- 💡 {busiest_floor} may need more seating or space")
+        if days_active < 5:
+            st.markdown("- 💡 Consider collecting data for more days to identify patterns")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.session_state.has_unsaved_changes:
+            st.warning("⚠️ You have unsaved changes. The dashboard shows UNSAVED data. Click 'SAVE ALL CHANGES' in sidebar to save to CSV.")
 
 # ========== PAGE 3: DAILY VIEW ==========
 elif page == "📅 Daily View":
