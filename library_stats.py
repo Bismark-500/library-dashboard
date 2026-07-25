@@ -663,9 +663,165 @@ elif page == "📅 Daily View":
     temp_df['date_obj'] = pd.to_datetime(temp_df['date'])
     all_dates = sorted(temp_df['date_obj'].unique(), reverse=True)
     
-    selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
+        selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
     
     date_data = temp_df[temp_df['date_obj'] == selected_date]
     
     if len(date_data) > 0:
-        st.write(f"### Detailed Breakdown for
+        st.write(f"### Detailed Breakdown for {selected_date.strftime('%A, %B %d, %Y')}")
+        daily_total = date_data['count'].sum()
+        st.metric("Total Visitors This Day", f"{daily_total:,}")
+        
+        pivot_table = date_data.pivot_table(index="time_slot", columns="floor", values="count", fill_value=0)
+        pivot_table["Total"] = pivot_table.sum(axis=1)
+        st.dataframe(pivot_table, use_container_width=True)
+    
+    if st.session_state.has_unsaved_changes:
+        st.info("⚠️ You have unsaved changes. These are shown above. Click 'SAVE ALL CHANGES' in sidebar to save.")
+
+# ========== PAGE 4: MONTHLY REPORT & COMPARE ==========
+else:
+    st.title("📄 Monthly Report & Month-over-Month Comparison")
+    
+    display_df = st.session_state.df_working
+    
+    if len(display_df) == 0:
+        st.warning("No data yet. Add data first.")
+        st.stop()
+    
+    temp_df = display_df.copy()
+    temp_df['date_obj'] = pd.to_datetime(temp_df['date'])
+    temp_df['month_year'] = temp_df['date_obj'].dt.strftime('%B %Y')
+    temp_df['month_num'] = temp_df['date_obj'].dt.month
+    temp_df['year'] = temp_df['date_obj'].dt.year
+    
+    available_months = sorted(temp_df['month_year'].unique(), reverse=True)
+    
+    # ========== PDF REPORT SECTION ==========
+    st.subheader("📑 Generate PDF Report")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        report_month = st.selectbox("Select month for PDF report", available_months, key="pdf_month")
+    with col2:
+        st.write("")  # spacer
+    
+    if st.button("📄 Generate PDF Report", type="primary"):
+        report_month_name = report_month.split()[0]
+        report_year = report_month.split()[1]
+        pdf_path = generate_pdf_report(temp_df, report_month_name, int(report_year))
+        
+        with open(pdf_path, "rb") as f:
+            pdf_data = f.read()
+        
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=pdf_data,
+            file_name=f"prempeh_library_{report_month_name}_{report_year}.pdf",
+            mime="application/pdf"
+        )
+        st.success(f"✅ PDF report for {report_month} generated!")
+        
+        # Clean up temp file
+        os.unlink(pdf_path)
+    
+    st.divider()
+    
+    # ========== MONTH-OVER-MONTH COMPARISON ==========
+    st.subheader("📊 Month-over-Month Comparison")
+    
+    if len(available_months) >= 2:
+        col1, col2 = st.columns(2)
+        with col1:
+            month1 = st.selectbox("First Month", available_months, key="compare1")
+        with col2:
+            month2 = st.selectbox("Second Month", available_months, key="compare2")
+        
+        if month1 != month2:
+            # Get data for both months
+            df1 = temp_df[temp_df['month_year'] == month1]
+            df2 = temp_df[temp_df['month_year'] == month2]
+            
+            # Calculate metrics
+            total1 = df1['count'].sum()
+            total2 = df2['count'].sum()
+            days1 = df1['date'].nunique()
+            days2 = df2['date'].nunique()
+            avg1 = total1 / days1 if days1 > 0 else 0
+            avg2 = total2 / days2 if days2 > 0 else 0
+            
+            # Calculate changes
+            total_change = ((total2 - total1) / total1 * 100) if total1 > 0 else 0
+            avg_change = ((avg2 - avg1) / avg1 * 100) if avg1 > 0 else 0
+            
+            # Display comparison table
+            st.write(f"### {month1} vs {month2}")
+            
+            comparison_data = {
+                "Metric": ["Total Visitors", "Days Active", "Average Daily", "Busiest Day", "Peak Floor", "Peak Time"],
+                month1: [
+                    f"{total1:,}",
+                    str(days1),
+                    f"{avg1:.0f}",
+                    df1.groupby('date_obj')['count'].sum().idxmax().strftime('%b %d') if len(df1) > 0 else "N/A",
+                    df1.groupby('floor')['count'].sum().idxmax() if len(df1) > 0 else "N/A",
+                    df1.groupby('time_slot')['count'].sum().idxmax() if len(df1) > 0 else "N/A"
+                ],
+                month2: [
+                    f"{total2:,}",
+                    str(days2),
+                    f"{avg2:.0f}",
+                    df2.groupby('date_obj')['count'].sum().idxmax().strftime('%b %d') if len(df2) > 0 else "N/A",
+                    df2.groupby('floor')['count'].sum().idxmax() if len(df2) > 0 else "N/A",
+                    df2.groupby('time_slot')['count'].sum().idxmax() if len(df2) > 0 else "N/A"
+                ],
+                "Change": [
+                    f"{total_change:+.1f}%",
+                    f"{days2 - days1:+.0f} days",
+                    f"{avg_change:+.1f}%",
+                    "",
+                    "",
+                    ""
+                ]
+            }
+            
+            comparison_df = pd.DataFrame(comparison_data)
+            st.dataframe(comparison_df, use_container_width=True)
+            
+            # Visual comparison charts
+            st.write("### Visual Comparison")
+            
+            # Bar chart comparing total visitors
+            fig_compare = go.Figure(data=[
+                go.Bar(name=month1, x=['Total Visitors'], y=[total1]),
+                go.Bar(name=month2, x=['Total Visitors'], y=[total2])
+            ])
+            fig_compare.update_layout(title="Total Visitors Comparison", barmode='group')
+            st.plotly_chart(fig_compare, use_container_width=True)
+            
+            # Floor comparison
+            floor1 = df1.groupby('floor')['count'].sum().reset_index()
+            floor1.columns = ['Floor', month1]
+            floor2 = df2.groupby('floor')['count'].sum().reset_index()
+            floor2.columns = ['Floor', month2]
+            floor_compare = pd.merge(floor1, floor2, on='Floor', how='outer').fillna(0)
+            
+            fig_floor = go.Figure(data=[
+                go.Bar(name=month1, x=floor_compare['Floor'], y=floor_compare[month1]),
+                go.Bar(name=month2, x=floor_compare['Floor'], y=floor_compare[month2])
+            ])
+            fig_floor.update_layout(title="Floor Usage Comparison", barmode='group', xaxis_tickangle=-45)
+            st.plotly_chart(fig_floor, use_container_width=True)
+            
+            # Insight
+            st.divider()
+            if total_change > 5:
+                st.success(f"📈 **Positive Growth:** {month2} had {total_change:.1f}% more visitors than {month1}")
+            elif total_change < -5:
+                st.warning(f"📉 **Decline:** {month2} had {abs(total_change):.1f}% fewer visitors than {month1}")
+            else:
+                st.info(f"📊 **Stable:** Visitor numbers remained relatively stable between {month1} and {month2}")
+        else:
+            st.warning("Please select two different months to compare")
+    else:
+        st.info("Need at least two months of data to show month-over-month comparison. Keep adding data!")
