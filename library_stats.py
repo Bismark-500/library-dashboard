@@ -121,7 +121,6 @@ def generate_pdf_report(df, month_name, year):
     styles = getSampleStyleSheet()
     story = []
     
-    # Title
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
@@ -134,11 +133,9 @@ def generate_pdf_report(df, month_name, year):
     story.append(Paragraph(f"Monthly Report - {month_name} {year}", styles['Heading2']))
     story.append(Spacer(1, 20))
     
-    # Summary section
     story.append(Paragraph("Executive Summary", styles['Heading3']))
     story.append(Spacer(1, 10))
     
-    # Get monthly summary
     df_month = df[df['month_year'] == f"{month_name} {year}"]
     total_visitors = df_month['count'].sum()
     days_active = df_month['date'].nunique()
@@ -167,7 +164,6 @@ def generate_pdf_report(df, month_name, year):
     story.append(summary_table)
     story.append(Spacer(1, 20))
     
-    # Daily totals table
     story.append(Paragraph("Daily Totals", styles['Heading3']))
     story.append(Spacer(1, 10))
     
@@ -186,7 +182,6 @@ def generate_pdf_report(df, month_name, year):
     story.append(daily_table)
     story.append(Spacer(1, 20))
     
-    # Floor distribution
     story.append(Paragraph("Floor Usage Summary", styles['Heading3']))
     story.append(Spacer(1, 10))
     
@@ -205,7 +200,6 @@ def generate_pdf_report(df, month_name, year):
     story.append(floor_table)
     story.append(Spacer(1, 20))
     
-    # Time slot distribution
     story.append(Paragraph("Time Slot Usage", styles['Heading3']))
     story.append(Spacer(1, 10))
     
@@ -222,7 +216,6 @@ def generate_pdf_report(df, month_name, year):
     ]))
     story.append(time_table)
     
-    # Footer
     story.append(Spacer(1, 30))
     story.append(Paragraph(f"Report generated on {datetime.now().strftime('%B %d, %Y at %H:%M')}", styles['Normal']))
     story.append(Paragraph("Data source: Prempeh II Library Daily Counts", styles['Normal']))
@@ -242,7 +235,6 @@ if 'has_unsaved_changes' not in st.session_state:
 st.sidebar.title("🏛️ Prempeh II Library")
 st.sidebar.caption("Batch Entry - Save All at Once")
 
-# Show status
 if len(st.session_state.df_saved) > 0:
     total_visitors = st.session_state.df_saved['count'].sum()
     total_days = st.session_state.df_saved['date'].nunique()
@@ -255,7 +247,6 @@ if st.session_state.has_unsaved_changes:
 
 st.sidebar.divider()
 
-# SAVE ALL button
 if st.sidebar.button("💾 SAVE ALL CHANGES", type="primary", use_container_width=True):
     if save_all_data(st.session_state.df_working):
         st.session_state.df_saved = st.session_state.df_working.copy()
@@ -266,7 +257,6 @@ if st.sidebar.button("💾 SAVE ALL CHANGES", type="primary", use_container_widt
     else:
         st.sidebar.error("❌ Save failed")
 
-# Download CSV button
 if len(st.session_state.df_working) > 0:
     csv_data = st.session_state.df_working.to_csv(index=False)
     st.sidebar.download_button(
@@ -277,7 +267,6 @@ if len(st.session_state.df_working) > 0:
         use_container_width=True
     )
 
-# Sync to Google Sheet button
 if len(st.session_state.df_working) > 0:
     csv_data = st.session_state.df_working.to_csv(index=False)
     st.sidebar.download_button(
@@ -288,7 +277,6 @@ if len(st.session_state.df_working) > 0:
         use_container_width=True
     )
 
-# Discard button
 if st.session_state.has_unsaved_changes:
     st.sidebar.divider()
     if st.sidebar.button("🗑️ DISCARD ALL UNSAVED", use_container_width=True):
@@ -307,7 +295,6 @@ if page == "📝 Add/Edit Days":
     if st.session_state.has_unsaved_changes:
         st.info("📝 You have unsaved changes. Click 'SAVE ALL CHANGES' in sidebar when finished with all days.")
     
-    # Date selector
     col1, col2 = st.columns(2)
     with col1:
         actual_date = st.date_input("Select Date", datetime.now())
@@ -317,7 +304,6 @@ if page == "📝 Add/Edit Days":
     
     date_str = actual_date.strftime("%Y-%m-%d")
     
-    # Check if data exists in working dataframe
     existing_data = st.session_state.df_working[st.session_state.df_working["date"] == date_str] if len(st.session_state.df_working) > 0 else pd.DataFrame()
     
     if len(existing_data) > 0:
@@ -327,13 +313,11 @@ if page == "📝 Add/Edit Days":
     
     st.write(f"### 📅 {selected_day}, {actual_date.strftime('%B %d, %Y')}")
     
-    # Create lookup for existing values
     lookup = {}
     if len(existing_data) > 0:
         for _, row in existing_data.iterrows():
             lookup[(row['time_slot'], row['floor'])] = row['count']
     
-    # Data entry grid
     entered_data = {}
     
     header_cols = st.columns([1.5] + [1.2] * len(floors) + [1])
@@ -368,7 +352,6 @@ if page == "📝 Add/Edit Days":
     
     st.markdown("---")
     
-    # Calculate column totals
     col_totals = {floor: 0 for floor in floors}
     for (time_slot, floor), val in entered_data.items():
         col_totals[floor] += val
@@ -381,7 +364,6 @@ if page == "📝 Add/Edit Days":
         grand_total += col_totals[floor]
     total_cols[-1].write(f"**{grand_total}**")
     
-    # Stage button
     if st.button("📋 STAGE CHANGES FOR THIS DAY", type="secondary", use_container_width=True):
         new_rows = []
         for time_slot in time_slots:
@@ -406,7 +388,6 @@ if page == "📝 Add/Edit Days":
         st.success(f"✅ {selected_day}, {date_str} STAGED! Click 'SAVE ALL CHANGES' in sidebar when done.")
         st.rerun()
     
-    # Show current working data summary
     st.divider()
     st.subheader("📋 Days Staged (Unsaved)")
     
@@ -423,7 +404,7 @@ if page == "📝 Add/Edit Days":
     else:
         st.write("No days staged yet.")
 
-# ========== PAGE 2: EXECUTIVE DASHBOARD (BEAUTIFUL VERSION) ==========
+# ========== PAGE 2: EXECUTIVE DASHBOARD ==========
 elif page == "📊 Executive Dashboard":
     st.title("🏛️ Prempeh II Library")
     st.caption("Executive Dashboard - Real-time Library Analytics")
@@ -448,7 +429,7 @@ elif page == "📊 Executive Dashboard":
         st.warning(f"No data for {selected_month}")
         st.stop()
     
-    # ========== KPI CARDS ROW (BEAUTIFUL) ==========
+    # ========== KPI CARDS ==========
     total_visitors = df['count'].sum()
     days_active = df['date'].nunique()
     avg_daily = total_visitors / days_active if days_active > 0 else 0
@@ -460,7 +441,6 @@ elif page == "📊 Executive Dashboard":
     busiest_floor = df.groupby('floor')['count'].sum().idxmax()
     busiest_time = df.groupby('time_slot')['count'].sum().idxmax()
     
-    # Calculate growth (if previous month exists)
     available_months_list = sorted(temp_df['month_year'].unique(), reverse=True)
     growth = "N/A"
     month_index = available_months_list.index(selected_month)
@@ -471,61 +451,59 @@ elif page == "📊 Executive Dashboard":
             growth_pct = ((total_visitors - prev_total) / prev_total) * 100
             growth = f"{growth_pct:+.1f}%"
     
-    # Create beautiful KPI cards
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📊 TOTAL VISITORS</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>""" + f"{total_visitors:,}" + """</h2>
+            <h2 style='font-size: 28px; margin: 5px 0;'>{total_visitors:,}</h2>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📅 DAYS ACTIVE</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>""" + f"{days_active}" + """</h2>
+            <h2 style='font-size: 28px; margin: 5px 0;'>{days_active}</h2>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 15px; border-radius: 10px; text-align: center; color: white;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>📈 AVERAGE DAILY</p>
-            <h2 style='font-size: 28px; margin: 5px 0;'>""" + f"{avg_daily:.0f}" + """</h2>
+            <h2 style='font-size: 28px; margin: 5px 0;'>{avg_daily:.0f}</h2>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>🏆 BUSIEST DAY</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>""" + f"{busiest_day[:12]}" + """</h4>
-            <p style='font-size: 12px; margin: 0;'>""" + f"{busiest_day_count} visitors" + """</p>
+            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_day[:12]}</h4>
+            <p style='font-size: 12px; margin: 0;'>{busiest_day_count} visitors</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col5:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>🏢 PEAK FLOOR</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>""" + f"{busiest_floor[:12]}" + """</h4>
+            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_floor[:12]}</h4>
         </div>
         """, unsafe_allow_html=True)
     
     with col6:
-        st.markdown("""
+        st.markdown(f"""
         <div style='background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); padding: 15px; border-radius: 10px; text-align: center; color: #1a2332;'>
             <p style='font-size: 12px; margin: 0; opacity: 0.8;'>⏰ PEAK TIME</p>
-            <h4 style='font-size: 14px; margin: 5px 0;'>""" + f"{busiest_time}" + """</h4>
+            <h4 style='font-size: 14px; margin: 5px 0;'>{busiest_time}</h4>
         </div>
         """, unsafe_allow_html=True)
     
     st.divider()
     
-    # ========== GROWTH INDICATOR ==========
     if growth != "N/A":
         if float(growth.strip('%')) > 0:
             st.success(f"📈 **Growth:** {growth} increase compared to previous month")
@@ -536,7 +514,7 @@ elif page == "📊 Executive Dashboard":
     
     st.divider()
     
-    # ========== DAILY TREND CHART ==========
+    # ========== CHARTS ==========
     st.subheader(f"📈 Daily Traffic Trend - {selected_month}")
     daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
     if len(daily_trend) > 0:
@@ -554,7 +532,6 @@ elif page == "📊 Executive Dashboard":
         )
         st.plotly_chart(fig1, use_container_width=True)
     
-    # ========== TWO COLUMN CHARTS ==========
     col1, col2 = st.columns(2)
     
     with col1:
@@ -571,7 +548,6 @@ elif page == "📊 Executive Dashboard":
         )
         st.plotly_chart(fig2, use_container_width=True)
         
-        # Floor percentages
         floor_pct = (floor_total / floor_total.sum() * 100).round(1)
         st.caption("**📊 Floor Distribution:**")
         for floor, pct in floor_pct.items():
@@ -591,7 +567,6 @@ elif page == "📊 Executive Dashboard":
         )
         st.plotly_chart(fig3, use_container_width=True)
         
-        # Time percentages
         time_pct = (time_total / time_total.sum() * 100).round(1)
         st.caption("**📊 Time Distribution:**")
         for time, pct in time_pct.items():
@@ -625,7 +600,6 @@ elif page == "📊 Executive Dashboard":
         fig5.update_layout(height=400)
         st.plotly_chart(fig5, use_container_width=True)
     
-    # ========== WEEKLY PATTERN ==========
     st.subheader("📅 Weekly Pattern Analysis")
     weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order)
     colors = ['#667eea', '#4facfe', '#43e97b', '#f093fb', '#fa709a']
@@ -645,7 +619,6 @@ elif page == "📊 Executive Dashboard":
     
     insights = []
     
-    # Busiest day insight
     if len(daily_totals) > 0:
         busiest_day_name = daily_totals.idxmax().strftime('%A, %B %d')
         insights.append(f"📌 **Peak Day:** {busiest_day_name} was the busiest day with {busiest_day_count:,} visitors")
@@ -654,20 +627,45 @@ elif page == "📊 Executive Dashboard":
         quietest_day_name = daily_totals.idxmin().strftime('%A, %B %d')
         insights.append(f"📌 **Quietest Day:** {quietest_day_name} had {quietest_day_count:,} visitors")
     
-    # Peak time insight
     insights.append(f"📌 **Peak Time:** {busiest_time} is when most people visit")
     
-    # Floor insights
     quietest_floor = df.groupby('floor')['count'].sum().idxmin()
     floor_ratio = (df.groupby('floor')['count'].sum()[busiest_floor] / df['count'].sum() * 100).round(1)
     insights.append(f"📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
     
-    # Daily average insight
     insights.append(f"📌 **Average Daily:** {avg_daily:.0f} visitors per day")
     
-    # Recommendations
     st.write("### 💡 Recommendations")
     if busiest_time in ["4pm", "8pm"]:
         st.info("💡 Consider adding more staff during peak hours")
     if floor_ratio > 40:
-        st.info("💡
+        st.info("💡 The busiest floor may need more seating or space")
+    if days_active < 5:
+        st.info("💡 Consider collecting data for more days to identify patterns")
+    if len(insights) > 0:
+        for insight in insights:
+            st.write(insight)
+    
+    if st.session_state.has_unsaved_changes:
+        st.warning("⚠️ You have unsaved changes. The dashboard shows UNSAVED data. Click 'SAVE ALL CHANGES' in sidebar to save to CSV.")
+
+# ========== PAGE 3: DAILY VIEW ==========
+elif page == "📅 Daily View":
+    st.title("📅 Daily Detail View")
+    
+    display_df = st.session_state.df_working
+    
+    if len(display_df) == 0:
+        st.warning("No data yet.")
+        st.stop()
+    
+    temp_df = display_df.copy()
+    temp_df['date_obj'] = pd.to_datetime(temp_df['date'])
+    all_dates = sorted(temp_df['date_obj'].unique(), reverse=True)
+    
+    selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
+    
+    date_data = temp_df[temp_df['date_obj'] == selected_date]
+    
+    if len(date_data) > 0:
+        st.write(f"### Detailed Breakdown for
