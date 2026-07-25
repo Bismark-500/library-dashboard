@@ -663,7 +663,7 @@ elif page == "📅 Daily View":
     temp_df['date_obj'] = pd.to_datetime(temp_df['date'])
     all_dates = sorted(temp_df['date_obj'].unique(), reverse=True)
     
-        selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
+    selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
     
     date_data = temp_df[temp_df['date_obj'] == selected_date]
     
