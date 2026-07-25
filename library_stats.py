@@ -337,16 +337,6 @@ def generate_pdf_report(df, month_name, year):
     story.append(charts_table)
     story.append(Spacer(1, 20))
     
-    # ---------- DAILY TOTALS ----------
-    story.append(Paragraph("Daily Totals", ParagraphStyle('H3c', parent=styles['Heading3'], textColor=NAVY)))
-    story.append(Spacer(1, 6))
-    
-    daily_display = daily_totals_df.copy()
-    daily_display['Date'] = daily_display['DateObj'].dt.strftime('%B %d (%a)')
-    daily_table_data = [["Date", "Total Visitors"]] + daily_display[['Date', 'Total Visitors']].values.tolist()
-    story.append(_styled_table(daily_table_data, [3.5*inch, 2.7*inch], header_color=TEAL))
-    story.append(Spacer(1, 20))
-    
     # ---------- FLOOR USAGE ----------
     story.append(Paragraph("Floor Usage Summary", ParagraphStyle('H3d', parent=styles['Heading3'], textColor=NAVY)))
     story.append(Spacer(1, 6))
@@ -363,6 +353,21 @@ def generate_pdf_report(df, month_name, year):
     
     time_table_data = [["Time Slot", "Total Visitors"]] + [[k, v] for k, v in time_totals.items()]
     story.append(_styled_table(time_table_data, [3.5*inch, 2.7*inch], header_color=CORAL))
+    story.append(Spacer(1, 20))
+    
+    # ---------- DAILY TOTALS (detailed day-by-day appendix) ----------
+    story.append(Paragraph("Daily Totals", ParagraphStyle('H3c', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
+    
+    daily_note_style = ParagraphStyle('DailyNote', parent=styles['Normal'], fontSize=9,
+                                       textColor=colors.HexColor('#5a7d97'), leading=13)
+    story.append(Paragraph("A day-by-day breakdown of total visitors for the month, for reference.", daily_note_style))
+    story.append(Spacer(1, 8))
+    
+    daily_display = daily_totals_df.copy()
+    daily_display['Date'] = daily_display['DateObj'].dt.strftime('%B %d (%a)')
+    daily_table_data = [["Date", "Total Visitors"]] + daily_display[['Date', 'Total Visitors']].values.tolist()
+    story.append(_styled_table(daily_table_data, [3.5*inch, 2.7*inch], header_color=TEAL))
     story.append(Spacer(1, 20))
     
     # ---------- KEY INSIGHTS ----------
@@ -407,7 +412,13 @@ def generate_pdf_report(df, month_name, year):
     footer_wrap = Table([[link_button]], colWidths=[6.8*inch])
     footer_wrap.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
     story.append(footer_wrap)
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 6))
+    
+    link_note_style = ParagraphStyle('LinkNote', parent=styles['Normal'], fontSize=8,
+                                      textColor=colors.HexColor('#5a7d97'), alignment=TA_CENTER,
+                                      fontName='Helvetica-Oblique')
+    story.append(Paragraph("Best viewed on a computer — the dashboard isn't optimized for phones yet.", link_note_style))
+    story.append(Spacer(1, 10))
     
     footer_text_style = ParagraphStyle('FooterText', parent=styles['Normal'], fontSize=8.3,
                                         textColor=colors.HexColor('#5a7d97'), alignment=TA_CENTER)
