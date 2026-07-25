@@ -8,9 +8,10 @@ import requests
 import io
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import tempfile
 import base64
 
@@ -76,6 +77,7 @@ SHEET_ID = "1NG8yGF392pDoKE7JRunwbfRU1PAAcnoBH6rnSmXs-wo"
 floors = ["Ground floor", "First floor", "Second floor", "Third floor", "Fourth floor", "Research Commons"]
 time_slots = ["11am", "2pm", "4pm", "8pm"]
 days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+DASHBOARD_URL = "https://prempeh-libraryuser.streamlit.app/"
 
 # Local CSV file
 LOCAL_DATA_FILE = os.path.join(os.path.dirname(__file__), "prempeh_library_all_data.csv")
@@ -165,113 +167,252 @@ def save_all_data(df):
         st.error(f"Save error: {e}")
         return False
 
+# ========== PDF HELPERS ==========
+NAVY = colors.HexColor('#123456')
+BLUE = colors.HexColor('#2E86AB')
+TEAL = colors.HexColor('#48C9B0')
+AMBER = colors.HexColor('#F5B041')
+CORAL = colors.HexColor('#EB5757')
+LIGHT_BG = colors.HexColor('#EAF5FB')
+ROW_ALT = colors.HexColor('#F4FAFD')
+
+def _styled_table(data, col_widths, header_color=BLUE, align='CENTER'):
+    """A clean table with a colored header row and soft alternating row shading."""
+    table = Table(data, colWidths=col_widths, hAlign='CENTER')
+    style = [
+        ('BACKGROUND', (0, 0), (-1, 0), header_color),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('FONTSIZE', (0, 1), (-1, -1), 9.5),
+        ('ALIGN', (0, 0), (-1, -1), align),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 7),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+        ('LINEBELOW', (0, 0), (-1, 0), 1, header_color),
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.HexColor('#DCE9F2')),
+        ('TEXTCOLOR', (0, 1), (-1, -1), NAVY),
+    ]
+    for r in range(1, len(data)):
+        if r % 2 == 0:
+            style.append(('BACKGROUND', (0, r), (-1, r), ROW_ALT))
+    table.setStyle(TableStyle(style))
+    return table
+
+def _bar_chart_drawing(categories, values, bar_color, width=520, height=170, value_fmt="{:.0f}"):
+    """A dependency-free bar chart (reportlab.graphics) for embedding in the PDF."""
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+
+    drawing = Drawing(width, height)
+    chart = VerticalBarChart()
+    chart.x = 45
+    chart.y = 40
+    chart.width = width - 70
+    chart.height = height - 70
+    chart.data = [values]
+    chart.categoryAxis.categoryNames = categories
+    chart.categoryAxis.labels.angle = 20
+    chart.categoryAxis.labels.dx = -6
+    chart.categoryAxis.labels.dy = -10
+    chart.categoryAxis.labels.fontSize = 7.5
+    chart.categoryAxis.labels.fillColor = NAVY
+    chart.valueAxis.valueMin = 0
+    top = max(values) if values else 1
+    chart.valueAxis.valueMax = top * 1.2 if top > 0 else 1
+    chart.valueAxis.labels.fontSize = 7.5
+    chart.valueAxis.labels.fillColor = NAVY
+    chart.bars[0].fillColor = bar_color
+    chart.bars[0].strokeColor = None
+    chart.barLabels.fontSize = 7.5
+    chart.barLabels.fillColor = NAVY
+    chart.barLabelFormat = value_fmt
+    chart.barLabels.dy = 4
+    drawing.add(chart)
+    return drawing
+
 # ========== GENERATE PDF REPORT ==========
 def generate_pdf_report(df, month_name, year):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmpfile:
         pdf_path = tmpfile.name
     
-    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    doc = SimpleDocTemplate(
+        pdf_path, pagesize=letter,
+        topMargin=0.5*inch, bottomMargin=0.5*inch,
+        leftMargin=0.6*inch, rightMargin=0.6*inch
+    )
     styles = getSampleStyleSheet()
     story = []
     
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        textColor=colors.HexColor('#2c3e50'),
-        alignment=1,
-        spaceAfter=30
-    )
-    story.append(Paragraph(f"Prempeh II Library", title_style))
-    story.append(Paragraph(f"Monthly Report - {month_name} {year}", styles['Heading2']))
-    story.append(Spacer(1, 20))
-    
-    story.append(Paragraph("Executive Summary", styles['Heading3']))
-    story.append(Spacer(1, 10))
-    
-    df_month = df[df['month_year'] == f"{month_name} {year}"]
+    df_month = df[df['month_year'] == f"{month_name} {year}"].copy()
     total_visitors = df_month['count'].sum()
     days_active = df_month['date'].nunique()
     avg_daily = total_visitors / days_active if days_active > 0 else 0
+    
+    floor_totals = df_month.groupby('floor')['count'].sum().reindex(floors).fillna(0)
+    time_totals = df_month.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0)
+    daily_totals_df = df_month.groupby('date')['count'].sum().reset_index()
+    daily_totals_df.columns = ['Date', 'Total Visitors']
+    daily_totals_df['DateObj'] = pd.to_datetime(daily_totals_df['Date'])
+    daily_totals_df = daily_totals_df.sort_values('DateObj')
+    
+    busiest_floor = floor_totals.idxmax()
+    quietest_floor = floor_totals.idxmin()
+    busiest_time = time_totals.idxmax()
+    busiest_day_row = daily_totals_df.loc[daily_totals_df['Total Visitors'].idxmax()] if len(daily_totals_df) > 0 else None
+    floor_share = (floor_totals[busiest_floor] / total_visitors * 100) if total_visitors > 0 else 0
+    
+    # ---------- HEADER BANNER ----------
+    header_style = ParagraphStyle('HeaderTitle', parent=styles['Normal'], fontSize=20,
+                                   textColor=colors.whitesmoke, fontName='Helvetica-Bold', leading=24)
+    subheader_style = ParagraphStyle('HeaderSub', parent=styles['Normal'], fontSize=11,
+                                      textColor=colors.HexColor('#D6ECF8'), fontName='Helvetica', leading=14)
+    banner_content = [
+        [Paragraph("🏛️ Prempeh II Library", header_style)],
+        [Paragraph(f"Monthly Usage Report — {month_name} {year}", subheader_style)]
+    ]
+    banner = Table(banner_content, colWidths=[6.8*inch])
+    banner.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), NAVY),
+        ('TOPPADDING', (0, 0), (-1, 0), 16),
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 16),
+        ('TOPPADDING', (0, 1), (-1, 1), 2),
+        ('LEFTPADDING', (0, 0), (-1, -1), 18),
+        ('ROUNDEDCORNERS', [8, 8, 8, 8]),
+    ]))
+    story.append(banner)
+    story.append(Spacer(1, 18))
+    
+    # ---------- NARRATIVE PREAMBLE ----------
+    intro_style = ParagraphStyle('Intro', parent=styles['Normal'], fontSize=10.3,
+                                  textColor=NAVY, leading=15)
+    preamble = (
+        f"This report presents a summary of library usage at Prempeh II Library for the month of "
+        f"<b>{month_name} {year}</b>. Over <b>{days_active} recorded day{'s' if days_active != 1 else ''}</b>, "
+        f"the library welcomed a total of <b>{total_visitors:,} visitors</b>, averaging "
+        f"<b>{avg_daily:.0f} visitors per day</b>. The sections below break usage down by floor, time slot, "
+        f"and day, to help guide staffing, space planning, and resource allocation for the month ahead."
+    )
+    story.append(Paragraph(preamble, intro_style))
+    story.append(Spacer(1, 16))
+    
+    # ---------- EXECUTIVE SUMMARY ----------
+    story.append(Paragraph("Executive Summary", ParagraphStyle('H3', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
     
     summary_data = [
         ["Metric", "Value"],
         ["Total Visitors", f"{total_visitors:,}"],
         ["Days Active", str(days_active)],
         ["Average Daily", f"{avg_daily:.0f}"],
-        ["Busiest Floor", df_month.groupby('floor')['count'].sum().idxmax()],
-        ["Peak Time", df_month.groupby('time_slot')['count'].sum().idxmax()]
+        ["Busiest Floor", busiest_floor],
+        ["Peak Time", busiest_time],
     ]
+    if busiest_day_row is not None:
+        summary_data.append(["Busiest Day", busiest_day_row['DateObj'].strftime('%A, %B %d')])
     
-    summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#3498db')),
-        ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (1, 0), 12),
-        ('BACKGROUND', (0, 1), (1, -1), colors.HexColor('#ecf0f1')),
-        ('GRID', (0, 0), (1, -1), 1, colors.black)
-    ]))
-    story.append(summary_table)
+    story.append(_styled_table(summary_data, [3*inch, 3.2*inch], header_color=BLUE, align='LEFT'))
     story.append(Spacer(1, 20))
     
-    story.append(Paragraph("Daily Totals", styles['Heading3']))
-    story.append(Spacer(1, 10))
+    # ---------- VISUAL SNAPSHOT ----------
+    story.append(Paragraph("Visual Snapshot", ParagraphStyle('H3b', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
     
-    daily_totals = df_month.groupby('date')['count'].sum().reset_index()
-    daily_totals.columns = ['Date', 'Total Visitors']
-    daily_totals['Date'] = pd.to_datetime(daily_totals['Date']).dt.strftime('%B %d')
+    floor_labels_short = [f.replace(" floor", "").replace("Research Commons", "Research") for f in floor_totals.index]
+    floor_chart = _bar_chart_drawing(floor_labels_short, list(floor_totals.values), BLUE, width=250, height=175)
+    time_chart = _bar_chart_drawing(list(time_totals.index), list(time_totals.values), AMBER, width=250, height=175)
     
-    daily_table_data = [daily_totals.columns.tolist()] + daily_totals.values.tolist()
-    daily_table = Table(daily_table_data, colWidths=[2*inch, 2*inch])
-    daily_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#3498db')),
-        ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (1, -1), 'CENTER'),
-        ('GRID', (0, 0), (1, -1), 1, colors.black)
+    chart_caption_style = ParagraphStyle('Caption', parent=styles['Normal'], fontSize=9,
+                                          textColor=colors.HexColor('#5a7d97'), alignment=TA_CENTER)
+    charts_table = Table(
+        [[floor_chart, time_chart],
+         [Paragraph("Visitors by Floor", chart_caption_style), Paragraph("Visitors by Time Slot", chart_caption_style)]],
+        colWidths=[3.3*inch, 3.3*inch]
+    )
+    charts_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 1), (-1, 1), 2),
     ]))
-    story.append(daily_table)
+    story.append(charts_table)
     story.append(Spacer(1, 20))
     
-    story.append(Paragraph("Floor Usage Summary", styles['Heading3']))
-    story.append(Spacer(1, 10))
+    # ---------- DAILY TOTALS ----------
+    story.append(Paragraph("Daily Totals", ParagraphStyle('H3c', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
     
-    floor_data = df_month.groupby('floor')['count'].sum().reset_index()
-    floor_data.columns = ['Floor', 'Total Visitors']
-    floor_data = floor_data.sort_values('Total Visitors', ascending=False)
-    
-    floor_table_data = [floor_data.columns.tolist()] + floor_data.values.tolist()
-    floor_table = Table(floor_table_data, colWidths=[2.5*inch, 2.5*inch])
-    floor_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#2ecc71')),
-        ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (1, -1), 'CENTER'),
-        ('GRID', (0, 0), (1, -1), 1, colors.black)
-    ]))
-    story.append(floor_table)
+    daily_display = daily_totals_df.copy()
+    daily_display['Date'] = daily_display['DateObj'].dt.strftime('%B %d (%a)')
+    daily_table_data = [["Date", "Total Visitors"]] + daily_display[['Date', 'Total Visitors']].values.tolist()
+    story.append(_styled_table(daily_table_data, [3.5*inch, 2.7*inch], header_color=TEAL))
     story.append(Spacer(1, 20))
     
-    story.append(Paragraph("Time Slot Usage", styles['Heading3']))
-    story.append(Spacer(1, 10))
+    # ---------- FLOOR USAGE ----------
+    story.append(Paragraph("Floor Usage Summary", ParagraphStyle('H3d', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
     
-    time_data = df_month.groupby('time_slot')['count'].sum().reset_index()
-    time_data.columns = ['Time Slot', 'Total Visitors']
+    floor_sorted = floor_totals.sort_values(ascending=False).reset_index()
+    floor_sorted.columns = ['Floor', 'Total Visitors']
+    floor_table_data = [["Floor", "Total Visitors"]] + floor_sorted.values.tolist()
+    story.append(_styled_table(floor_table_data, [3.5*inch, 2.7*inch], header_color=colors.HexColor('#58D68D')))
+    story.append(Spacer(1, 20))
     
-    time_table_data = [time_data.columns.tolist()] + time_data.values.tolist()
-    time_table = Table(time_table_data, colWidths=[2.5*inch, 2.5*inch])
-    time_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (1, 0), colors.HexColor('#e74c3c')),
-        ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (1, -1), 'CENTER'),
-        ('GRID', (0, 0), (1, -1), 1, colors.black)
+    # ---------- TIME SLOT USAGE ----------
+    story.append(Paragraph("Time Slot Usage", ParagraphStyle('H3e', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
+    
+    time_table_data = [["Time Slot", "Total Visitors"]] + [[k, v] for k, v in time_totals.items()]
+    story.append(_styled_table(time_table_data, [3.5*inch, 2.7*inch], header_color=CORAL))
+    story.append(Spacer(1, 20))
+    
+    # ---------- KEY INSIGHTS ----------
+    story.append(Paragraph("Key Insights", ParagraphStyle('H3f', parent=styles['Heading3'], textColor=NAVY)))
+    story.append(Spacer(1, 6))
+    
+    insight_style = ParagraphStyle('Insight', parent=styles['Normal'], fontSize=9.7, textColor=NAVY, leading=15)
+    insights = [
+        f"<b>{busiest_floor}</b> was the most used floor, accounting for {floor_share:.1f}% of all recorded traffic.",
+        f"<b>{busiest_time}</b> was the peak time slot across the month.",
+        f"<b>{quietest_floor}</b> saw the lightest traffic and may have room for repurposing or promotion.",
+    ]
+    if busiest_day_row is not None:
+        insights.insert(0, f"The busiest single day was <b>{busiest_day_row['DateObj'].strftime('%A, %B %d')}</b> with {int(busiest_day_row['Total Visitors']):,} visitors.")
+    
+    insight_table_rows = [[Paragraph(f"•  {t}", insight_style)] for t in insights]
+    insight_box = Table(insight_table_rows, colWidths=[6.8*inch])
+    insight_box.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), LIGHT_BG),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('LEFTPADDING', (0, 0), (-1, -1), 14),
+        ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor('#CFE9F7')),
     ]))
-    story.append(time_table)
+    story.append(insight_box)
+    story.append(Spacer(1, 26))
     
-    story.append(Spacer(1, 30))
-    story.append(Paragraph(f"Report generated on {datetime.now().strftime('%B %d, %Y at %H:%M')}", styles['Normal']))
-    story.append(Paragraph("Data source: Prempeh II Library Daily Counts", styles['Normal']))
+    # ---------- FOOTER: LIVE DASHBOARD LINK ----------
+    story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#CFE9F7')))
+    story.append(Spacer(1, 12))
+    
+    link_style = ParagraphStyle('Link', parent=styles['Normal'], fontSize=11,
+                                 textColor=colors.whitesmoke, fontName='Helvetica-Bold', alignment=TA_CENTER)
+    link_para = Paragraph(f'<a href="{DASHBOARD_URL}" color="white">📊 Click here to view the live dashboard</a>', link_style)
+    link_button = Table([[link_para]], colWidths=[4*inch])
+    link_button.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), BLUE),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    footer_wrap = Table([[link_button]], colWidths=[6.8*inch])
+    footer_wrap.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+    story.append(footer_wrap)
+    story.append(Spacer(1, 14))
+    
+    footer_text_style = ParagraphStyle('FooterText', parent=styles['Normal'], fontSize=8.3,
+                                        textColor=colors.HexColor('#5a7d97'), alignment=TA_CENTER)
+    story.append(Paragraph(f"Report generated on {datetime.now().strftime('%B %d, %Y at %H:%M')}", footer_text_style))
+    story.append(Paragraph("Data source: Prempeh II Library Daily Counts", footer_text_style))
     
     doc.build(story)
     return pdf_path
@@ -728,8 +869,43 @@ elif page == "📅 Daily View":
     
     temp_df = display_df.copy()
     temp_df['date_obj'] = pd.to_datetime(temp_df['date'])
+    temp_df['weekday'] = temp_df['date_obj'].dt.day_name()
     all_dates = sorted(temp_df['date_obj'].unique(), reverse=True)
     
+    # ---------- ALL DAYS: DAILY TOTALS SUMMARY ----------
+    st.subheader("📊 Daily Totals — All Days")
+    
+    daily_summary = temp_df.groupby(['date_obj', 'weekday'])['count'].sum().reset_index()
+    daily_summary.columns = ['Date', 'Day', 'Total Visitors']
+    daily_summary = daily_summary.sort_values('Date', ascending=False)
+    
+    s1, s2, s3 = st.columns(3)
+    s1.metric("Total Days Recorded", f"{daily_summary['Date'].nunique()}")
+    s2.metric("Overall Total Visitors", f"{daily_summary['Total Visitors'].sum():,}")
+    s3.metric("Average Per Day", f"{daily_summary['Total Visitors'].mean():.0f}")
+    
+    display_summary = daily_summary.copy()
+    display_summary['Date'] = display_summary['Date'].dt.strftime('%A, %B %d, %Y')
+    st.dataframe(display_summary, use_container_width=True, hide_index=True)
+    
+    fig_daily_totals = go.Figure(go.Bar(
+        x=daily_summary.sort_values('Date')['Date'],
+        y=daily_summary.sort_values('Date')['Total Visitors'],
+        marker=dict(color='#2E86AB'),
+        text=daily_summary.sort_values('Date')['Total Visitors'],
+        textposition='outside'
+    ))
+    fig_daily_totals.update_layout(
+        height=260, margin=dict(l=10, r=10, t=10, b=10),
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(title=None), yaxis=dict(title="Total Visitors", gridcolor='rgba(0,0,0,0.06)')
+    )
+    st.plotly_chart(fig_daily_totals, use_container_width=True)
+    
+    st.divider()
+    
+    # ---------- SINGLE DAY DETAIL ----------
+    st.subheader("🔍 Individual Day Breakdown")
     selected_date = st.selectbox("Select a date to view details", all_dates, format_func=lambda x: x.strftime("%A, %B %d, %Y"))
     
     date_data = temp_df[temp_df['date_obj'] == selected_date]
