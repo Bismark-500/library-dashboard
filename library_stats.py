@@ -20,6 +20,10 @@ st.set_page_config(page_title="Prempeh II Library", layout="wide")
 st.markdown("""
 <style>
 .stApp { background: linear-gradient(180deg, #eaf5fb 0%, #dbeef9 100%); }
+.block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
+div[data-testid="stVerticalBlock"] > div { gap: 0.4rem; }
+.stTabs [data-baseweb="tab-list"] { gap: 4px; }
+.stTabs [data-baseweb="tab"] { background: #ffffff; border-radius: 8px 8px 0 0; padding: 6px 16px; font-weight: 700; color: #123456; }
 .dash-banner {
     background: linear-gradient(90deg, #eaf6fb 0%, #cfe9f7 100%);
     border: 2px solid #123456; border-radius: 10px;
@@ -544,166 +548,170 @@ elif page == "📊 Executive Dashboard":
         
         st.write("")
         
-        # ---------- CHART ROW 1 ----------
-        r1c1, r1c2, r1c3 = st.columns([1.1, 1.1, 1])
+        tab_overview, tab_deep = st.tabs(["📊 Overview", "🔥 Deep Dive"])
         
-        with r1c1:
-            st.markdown("<div class='chart-panel'><h4>📊 Visitors by Floor</h4>", unsafe_allow_html=True)
-            floor_total = df.groupby('floor')['count'].sum().reindex(floors).fillna(0)
-            fig_floor = go.Figure(go.Bar(
-                x=floor_total.index, y=floor_total.values,
-                marker=dict(color=palette[:len(floor_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
-                text=floor_total.values, textposition='outside'
+        with tab_overview:
+            # ---------- CHART ROW 1 ----------
+            r1c1, r1c2, r1c3 = st.columns([1.1, 1.1, 1])
+        
+            with r1c1:
+                st.markdown("<div class='chart-panel'><h4>📊 Visitors by Floor</h4>", unsafe_allow_html=True)
+                floor_total = df.groupby('floor')['count'].sum().reindex(floors).fillna(0)
+                fig_floor = go.Figure(go.Bar(
+                    x=floor_total.index, y=floor_total.values,
+                    marker=dict(color=palette[:len(floor_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+                    text=floor_total.values, textposition='outside'
+                ))
+                fig_floor.update_layout(
+                    height=250, margin=dict(l=10, r=10, t=10, b=60),
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(tickangle=-30, showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
+                )
+                st.plotly_chart(fig_floor, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            with r1c2:
+                st.markdown("<div class='chart-panel'><h4>⏰ Visitors by Time Slot</h4>", unsafe_allow_html=True)
+                time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0).sort_values()
+                fig_time = go.Figure(go.Bar(
+                    x=time_total.values, y=time_total.index, orientation='h',
+                    marker=dict(color=palette[:len(time_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+                    text=time_total.values, textposition='outside'
+                ))
+                fig_time.update_layout(
+                    height=250, margin=dict(l=10, r=20, t=10, b=10),
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False), yaxis=dict(showgrid=False)
+                )
+                st.plotly_chart(fig_time, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            with r1c3:
+                st.markdown("<div class='chart-panel'><h4>🏢 Floor Distribution</h4>", unsafe_allow_html=True)
+                fig_floor_pie = go.Figure(go.Pie(
+                    labels=floor_total.index, values=floor_total.values, hole=0.35,
+                    pull=[0.06 if v == floor_total.max() else 0 for v in floor_total.values],
+                    marker=dict(colors=palette[:len(floor_total)], line=dict(color='white', width=2)),
+                    textinfo='percent'
+                ))
+                fig_floor_pie.update_layout(
+                    height=250, margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                    legend=dict(orientation='h', yanchor='bottom', y=-0.25, font=dict(size=9))
+                )
+                st.plotly_chart(fig_floor_pie, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            # ---------- CHART ROW 2 ----------
+            r2c1, r2c2, r2c3 = st.columns([1.3, 1, 1])
+        
+            with r2c1:
+                st.markdown(f"<div class='chart-panel'><h4>📈 Daily Visitor Trend — {selected_month}</h4>", unsafe_allow_html=True)
+                daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
+                fig_trend = px.line(daily_trend, x='date_obj', y='count', markers=True,
+                                     color_discrete_sequence=['#2E86AB'])
+                fig_trend.update_traces(line=dict(width=3), marker=dict(size=8, color='#EB5757'))
+                fig_trend.add_hline(y=daily_trend['count'].mean(), line_dash="dash",
+                                     annotation_text=f"Avg: {daily_trend['count'].mean():.0f}",
+                                     line_color="#A569BD")
+                fig_trend.update_layout(
+                    height=260, margin=dict(l=10, r=10, t=10, b=10),
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(showgrid=False, title=None), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)', title=None)
+                )
+                st.plotly_chart(fig_trend, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            with r2c2:
+                st.markdown("<div class='chart-panel'><h4>🌓 Early vs Late Week</h4>", unsafe_allow_html=True)
+                early_days = ["Monday", "Tuesday", "Wednesday"]
+                late_days = ["Thursday", "Friday"]
+                early_total = df[df['weekday'].isin(early_days)]['count'].sum()
+                late_total = df[df['weekday'].isin(late_days)]['count'].sum()
+                fig_split = go.Figure(go.Pie(
+                    labels=["Mon–Wed", "Thu–Fri"], values=[early_total, late_total], hole=0,
+                    pull=[0.08, 0], marker=dict(colors=['#2E86AB', '#F5B041'], line=dict(color='white', width=2)),
+                    textinfo='percent'
+                ))
+                fig_split.update_layout(
+                    height=260, margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                    legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
+                )
+                st.plotly_chart(fig_split, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            with r2c3:
+                st.markdown("<div class='chart-panel'><h4>⏱️ Time Slot Share</h4>", unsafe_allow_html=True)
+                time_total_ord = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0)
+                fig_time_pie = go.Figure(go.Pie(
+                    labels=time_total_ord.index, values=time_total_ord.values, hole=0,
+                    pull=[0.1 if v == time_total_ord.max() else 0.02 for v in time_total_ord.values],
+                    marker=dict(colors=palette[:len(time_total_ord)], line=dict(color='white', width=2)),
+                    textinfo='percent'
+                ))
+                fig_time_pie.update_layout(
+                    height=260, margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
+                    legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
+                )
+                st.plotly_chart(fig_time_pie, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+        with tab_deep:
+            # ---------- ADVANCED ANALYTICS (heatmaps + weekly pattern) ----------
+            r3c1, r3c2 = st.columns(2)
+            with r3c1:
+                st.markdown("<div class='chart-panel'><h4>🔥 Floor × Time Slot Heatmap</h4>", unsafe_allow_html=True)
+                pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
+                fig_heat1 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
+                                       labels={'x': 'Time Slot', 'y': 'Floor', 'color': 'Visitors'})
+                fig_heat1.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_heat1, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            with r3c2:
+                st.markdown("<div class='chart-panel'><h4>🔥 Day × Time Slot Heatmap</h4>", unsafe_allow_html=True)
+                day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
+                day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
+                fig_heat2 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
+                                       labels={'x': 'Time Slot', 'y': 'Day', 'color': 'Visitors'})
+                fig_heat2.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_heat2, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+        
+            st.markdown("<div class='chart-panel'><h4>📅 Weekly Pattern</h4>", unsafe_allow_html=True)
+            weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order).dropna()
+            fig_week = go.Figure(go.Bar(
+                x=weekly_pattern.index, y=weekly_pattern.values,
+                marker=dict(color=palette[:len(weekly_pattern)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
+                text=weekly_pattern.values, textposition='outside'
             ))
-            fig_floor.update_layout(
-                height=290, margin=dict(l=10, r=10, t=10, b=60),
+            fig_week.update_layout(
+                height=250, margin=dict(l=10, r=10, t=10, b=10),
                 plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(tickangle=-30, showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
+                xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
             )
-            st.plotly_chart(fig_floor, use_container_width=True)
+            st.plotly_chart(fig_week, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
         
-        with r1c2:
-            st.markdown("<div class='chart-panel'><h4>⏰ Visitors by Time Slot</h4>", unsafe_allow_html=True)
-            time_total = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0).sort_values()
-            fig_time = go.Figure(go.Bar(
-                x=time_total.values, y=time_total.index, orientation='h',
-                marker=dict(color=palette[:len(time_total)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
-                text=time_total.values, textposition='outside'
-            ))
-            fig_time.update_layout(
-                height=290, margin=dict(l=10, r=20, t=10, b=10),
-                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False), yaxis=dict(showgrid=False)
-            )
-            st.plotly_chart(fig_time, use_container_width=True)
+            # ---------- KEY INSIGHTS ----------
+            quietest_floor = df.groupby('floor')['count'].sum().idxmin()
+            floor_ratio = (df.groupby('floor')['count'].sum()[busiest_floor] / df['count'].sum() * 100).round(1)
+        
+            st.markdown("<div class='insight-panel'>", unsafe_allow_html=True)
+            st.markdown("<h4 style='color:#123456;margin-top:0;'>💡 Key Insights & Recommendations</h4>", unsafe_allow_html=True)
+            st.markdown(f"- 📌 **Peak Day:** {busiest_day} was the busiest day")
+            st.markdown(f"- 📌 **Peak Time:** {busiest_time} is when most people visit")
+            st.markdown(f"- 📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
+            st.markdown(f"- 📌 **Average Daily:** {avg_daily:.0f} visitors per day")
+            if busiest_time in ["4pm", "8pm"]:
+                st.markdown("- 💡 Consider adding more staff during peak hours")
+            if floor_ratio > 40:
+                st.markdown(f"- 💡 {busiest_floor} may need more seating or space")
+            if days_active < 5:
+                st.markdown("- 💡 Consider collecting data for more days to identify patterns")
             st.markdown("</div>", unsafe_allow_html=True)
-        
-        with r1c3:
-            st.markdown("<div class='chart-panel'><h4>🏢 Floor Distribution</h4>", unsafe_allow_html=True)
-            fig_floor_pie = go.Figure(go.Pie(
-                labels=floor_total.index, values=floor_total.values, hole=0.35,
-                pull=[0.06 if v == floor_total.max() else 0 for v in floor_total.values],
-                marker=dict(colors=palette[:len(floor_total)], line=dict(color='white', width=2)),
-                textinfo='percent'
-            ))
-            fig_floor_pie.update_layout(
-                height=290, margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
-                legend=dict(orientation='h', yanchor='bottom', y=-0.25, font=dict(size=9))
-            )
-            st.plotly_chart(fig_floor_pie, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        # ---------- CHART ROW 2 ----------
-        r2c1, r2c2, r2c3 = st.columns([1.3, 1, 1])
-        
-        with r2c1:
-            st.markdown(f"<div class='chart-panel'><h4>📈 Daily Visitor Trend — {selected_month}</h4>", unsafe_allow_html=True)
-            daily_trend = df.groupby('date_obj')['count'].sum().reset_index()
-            fig_trend = px.line(daily_trend, x='date_obj', y='count', markers=True,
-                                 color_discrete_sequence=['#2E86AB'])
-            fig_trend.update_traces(line=dict(width=3), marker=dict(size=8, color='#EB5757'))
-            fig_trend.add_hline(y=daily_trend['count'].mean(), line_dash="dash",
-                                 annotation_text=f"Avg: {daily_trend['count'].mean():.0f}",
-                                 line_color="#A569BD")
-            fig_trend.update_layout(
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
-                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, title=None), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)', title=None)
-            )
-            st.plotly_chart(fig_trend, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with r2c2:
-            st.markdown("<div class='chart-panel'><h4>🌓 Early vs Late Week</h4>", unsafe_allow_html=True)
-            early_days = ["Monday", "Tuesday", "Wednesday"]
-            late_days = ["Thursday", "Friday"]
-            early_total = df[df['weekday'].isin(early_days)]['count'].sum()
-            late_total = df[df['weekday'].isin(late_days)]['count'].sum()
-            fig_split = go.Figure(go.Pie(
-                labels=["Mon–Wed", "Thu–Fri"], values=[early_total, late_total], hole=0,
-                pull=[0.08, 0], marker=dict(colors=['#2E86AB', '#F5B041'], line=dict(color='white', width=2)),
-                textinfo='percent'
-            ))
-            fig_split.update_layout(
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
-                legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
-            )
-            st.plotly_chart(fig_split, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with r2c3:
-            st.markdown("<div class='chart-panel'><h4>⏱️ Time Slot Share</h4>", unsafe_allow_html=True)
-            time_total_ord = df.groupby('time_slot')['count'].sum().reindex(time_slots).fillna(0)
-            fig_time_pie = go.Figure(go.Pie(
-                labels=time_total_ord.index, values=time_total_ord.values, hole=0,
-                pull=[0.1 if v == time_total_ord.max() else 0.02 for v in time_total_ord.values],
-                marker=dict(colors=palette[:len(time_total_ord)], line=dict(color='white', width=2)),
-                textinfo='percent'
-            ))
-            fig_time_pie.update_layout(
-                height=300, margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor='rgba(0,0,0,0)', showlegend=True,
-                legend=dict(orientation='h', yanchor='bottom', y=-0.15, font=dict(size=9))
-            )
-            st.plotly_chart(fig_time_pie, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        # ---------- ADVANCED ANALYTICS (heatmaps + weekly pattern) ----------
-        r3c1, r3c2 = st.columns(2)
-        with r3c1:
-            st.markdown("<div class='chart-panel'><h4>🔥 Floor × Time Slot Heatmap</h4>", unsafe_allow_html=True)
-            pivot = df.groupby(['floor', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
-            fig_heat1 = px.imshow(pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
-                                   labels={'x': 'Time Slot', 'y': 'Floor', 'color': 'Visitors'})
-            fig_heat1.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_heat1, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with r3c2:
-            st.markdown("<div class='chart-panel'><h4>🔥 Day × Time Slot Heatmap</h4>", unsafe_allow_html=True)
-            day_pivot = df.groupby(['weekday', 'time_slot'])['count'].sum().unstack().reindex(columns=time_slots)
-            day_pivot = day_pivot.reindex([d for d in days_order if d in day_pivot.index])
-            fig_heat2 = px.imshow(day_pivot, text_auto=True, aspect="auto", color_continuous_scale="Blues",
-                                   labels={'x': 'Time Slot', 'y': 'Day', 'color': 'Visitors'})
-            fig_heat2.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_heat2, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        st.markdown("<div class='chart-panel'><h4>📅 Weekly Pattern</h4>", unsafe_allow_html=True)
-        weekly_pattern = df.groupby('weekday')['count'].sum().reindex(days_order).dropna()
-        fig_week = go.Figure(go.Bar(
-            x=weekly_pattern.index, y=weekly_pattern.values,
-            marker=dict(color=palette[:len(weekly_pattern)], line=dict(color='rgba(0,0,0,0.25)', width=1)),
-            text=weekly_pattern.values, textposition='outside'
-        ))
-        fig_week.update_layout(
-            height=280, margin=dict(l=10, r=10, t=10, b=10),
-            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='rgba(0,0,0,0.06)')
-        )
-        st.plotly_chart(fig_week, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # ---------- KEY INSIGHTS ----------
-        quietest_floor = df.groupby('floor')['count'].sum().idxmin()
-        floor_ratio = (df.groupby('floor')['count'].sum()[busiest_floor] / df['count'].sum() * 100).round(1)
-        
-        st.markdown("<div class='insight-panel'>", unsafe_allow_html=True)
-        st.markdown("<h4 style='color:#123456;margin-top:0;'>💡 Key Insights & Recommendations</h4>", unsafe_allow_html=True)
-        st.markdown(f"- 📌 **Peak Day:** {busiest_day} was the busiest day")
-        st.markdown(f"- 📌 **Peak Time:** {busiest_time} is when most people visit")
-        st.markdown(f"- 📌 **Floor Usage:** {busiest_floor} handles {floor_ratio}% of all traffic")
-        st.markdown(f"- 📌 **Average Daily:** {avg_daily:.0f} visitors per day")
-        if busiest_time in ["4pm", "8pm"]:
-            st.markdown("- 💡 Consider adding more staff during peak hours")
-        if floor_ratio > 40:
-            st.markdown(f"- 💡 {busiest_floor} may need more seating or space")
-        if days_active < 5:
-            st.markdown("- 💡 Consider collecting data for more days to identify patterns")
-        st.markdown("</div>", unsafe_allow_html=True)
         
         if st.session_state.has_unsaved_changes:
             st.warning("⚠️ You have unsaved changes. The dashboard shows UNSAVED data. Click 'SAVE ALL CHANGES' in sidebar to save to CSV.")
