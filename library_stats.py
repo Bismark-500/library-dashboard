@@ -177,7 +177,6 @@ LIGHT_BG = colors.HexColor('#EAF5FB')
 ROW_ALT = colors.HexColor('#F4FAFD')
 
 def _styled_table(data, col_widths, header_color=BLUE, align='CENTER'):
-    """A clean table with a colored header row and soft alternating row shading."""
     table = Table(data, colWidths=col_widths, hAlign='CENTER')
     style = [
         ('BACKGROUND', (0, 0), (-1, 0), header_color),
@@ -200,8 +199,7 @@ def _styled_table(data, col_widths, header_color=BLUE, align='CENTER'):
     return table
 
 def _bar_chart_drawing(categories, values, bar_color, width=520, height=170, value_fmt="{:.0f}"):
-    """A dependency-free bar chart (reportlab.graphics) for embedding in the PDF."""
-    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.shapes import Drawing
     from reportlab.graphics.charts.barcharts import VerticalBarChart
 
     drawing = Drawing(width, height)
@@ -314,7 +312,7 @@ def generate_pdf_report(df, month_name, year):
     story.append(_styled_table(summary_data, [3*inch, 3.2*inch], header_color=BLUE, align='LEFT'))
     story.append(Spacer(1, 20))
     
-    # ---------- DAILY TREND LINE CHART (NEW) ----------
+    # ---------- DAILY TREND LINE CHART ----------
     story.append(Paragraph("Daily Traffic Trend", ParagraphStyle('H3g', parent=styles['Heading3'], textColor=NAVY)))
     story.append(Spacer(1, 4))
     
@@ -327,14 +325,12 @@ def generate_pdf_report(df, month_name, year):
     ))
     story.append(Spacer(1, 8))
     
-    # Build the daily trend chart using reportlab graphics
-    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.shapes import Drawing
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
     
     trend_dates = daily_totals_df['DateObj'].dt.strftime('%d %b').tolist()
     trend_values = daily_totals_df['Total Visitors'].tolist()
     
-    # Create the line chart
     trend_chart = Drawing(550, 200)
     line_chart = HorizontalLineChart()
     line_chart.x = 50
@@ -358,15 +354,8 @@ def generate_pdf_report(df, month_name, year):
     line_chart.lines[0].symbol = 'circle'
     line_chart.lines[0].symbolSize = 5
     line_chart.lines[0].symbolFillColor = colors.HexColor('#EB5757')
-    # Add average line as a horizontal line
-    avg_line_value = avg_daily
-    if avg_line_value > 0:
-        # Add a custom horizontal line annotation using a drawing
-        avg_line_y = 30 + (avg_line_value / line_chart.valueAxis.valueMax) * 140
-        line_chart.valueAxis.rangeRound = 'both'
     trend_chart.add(line_chart)
     
-    # Add average annotation below the chart
     story.append(trend_chart)
     story.append(Spacer(1, 4))
     avg_style = ParagraphStyle('AvgNote', parent=styles['Normal'], fontSize=8,
@@ -415,7 +404,7 @@ def generate_pdf_report(df, month_name, year):
     story.append(_styled_table(time_table_data, [3.5*inch, 2.7*inch], header_color=CORAL))
     story.append(Spacer(1, 20))
     
-    # ---------- DAILY TOTALS (detailed day-by-day appendix) ----------
+    # ---------- DAILY TOTALS ----------
     story.append(Paragraph("Daily Totals", ParagraphStyle('H3c', parent=styles['Heading3'], textColor=NAVY)))
     story.append(Spacer(1, 6))
     
@@ -455,7 +444,7 @@ def generate_pdf_report(df, month_name, year):
     story.append(insight_box)
     story.append(Spacer(1, 26))
     
-    # ---------- FOOTER: LIVE DASHBOARD LINK ----------
+    # ---------- FOOTER ----------
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor('#CFE9F7')))
     story.append(Spacer(1, 12))
     
@@ -618,4 +607,18 @@ if page == "📝 Add/Edit Days":
     st.markdown("---")
     
     col_totals = {floor: 0 for floor in floors}
-    for (time_slot, floor), val in entered
+    for (time_slot, floor), val in entered_data.items():
+        col_totals[floor] += val
+    
+    total_cols = st.columns([1.5] + [1.2] * len(floors) + [1])
+    total_cols[0].write("**Total**")
+    grand_total = 0
+    for i, floor in enumerate(floors):
+        total_cols[i+1].write(f"**{col_totals[floor]}**")
+        grand_total += col_totals[floor]
+    total_cols[-1].write(f"**{grand_total}**")
+    
+    if st.button("📋 STAGE CHANGES FOR THIS DAY", type="secondary", use_container_width=True):
+        new_rows = []
+        for time_slot in time_slots:
+            for floor in floors
