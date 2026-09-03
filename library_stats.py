@@ -229,7 +229,7 @@ def _bar_chart_drawing(categories, values, bar_color, width=520, height=170, val
     drawing.add(chart)
     return drawing
 
-# ========== GENERATE PDF REPORT ==========
+# ========== GENERATE PDF REPORT (FIXED) ==========
 def generate_pdf_report(df, month_name, year):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmpfile:
         pdf_path = tmpfile.name
@@ -351,9 +351,8 @@ def generate_pdf_report(df, month_name, year):
     line_chart.valueAxis.labels.fillColor = NAVY
     line_chart.lines[0].strokeColor = BLUE
     line_chart.lines[0].strokeWidth = 2.5
-    line_chart.lines[0].symbol = 'circle'
-    line_chart.lines[0].symbolSize = 5
-    line_chart.lines[0].symbolFillColor = colors.HexColor('#EB5757')
+    # FIXED: Removed problematic attributes to avoid AttributeError
+    line_chart.lines[0].symbol = None
     trend_chart.add(line_chart)
     
     story.append(trend_chart)
